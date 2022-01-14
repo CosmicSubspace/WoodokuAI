@@ -8,11 +8,18 @@
 
 
 #include <iostream>
-
+#include <chrono>
 
 // Crucial constant, determines the DFS search depth
 // Has very heavy impact on speed and smartness.
-#define SEARCH_DEPTH 4
+// set to 0 for dynamic search depth adjustment.
+#define CONSTANT_SEARCH_DEPTH 0
+
+// Dynamic depth parameters.
+// The program will go for an additional DFS level
+// If the current DFS took less than ADDITIONAL_DEPTH_THRESH milliseconds.
+#define MAX_SEARCH_DEPTH 10
+#define ADDITIONAL_DEPTH_THRESH 100
 
 // Maximum game length. Determines the length of the piece queue.
 // Doesn't impace performance too much I think.
@@ -31,6 +38,15 @@
 // Use constant seed. Useful for performance measurement.
 // Use 0 to disable.
 #define CONSTANT_SEED 0
+
+
+
+
+
+uint64_t timeSinceEpochMillisec() {
+  using namespace std::chrono;
+  return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
 
 struct Uint8x2{
     uint8_t x;
@@ -500,19 +516,19 @@ public:
 
 
 struct DFSResult{
-    Placement placements[SEARCH_DEPTH];
+    Placement placements[MAX_SEARCH_DEPTH];
     int score;
     bool valid;
 };
 typedef struct DFSResult DFSResult;
 
-DFSResult search(GameState initialState,int depth){
+DFSResult search(GameState initialState,int depth,int targetDepth){
 
     DFSResult optimalResult;
     optimalResult.score=INT_MIN;
     optimalResult.valid=false;
 
-    if (depth>=SEARCH_DEPTH) return optimalResult;
+    if (depth>=targetDepth) return optimalResult;
 
     Piece currentPiece=initialState.getCurrentPiece();
 
@@ -536,7 +552,7 @@ DFSResult search(GameState initialState,int depth){
                 dr.valid=true;
 
                 // Try recursing, if successful, copy result
-                DFSResult dr_recursed=search(inState,depth+1);
+                DFSResult dr_recursed=search(inState,depth+1,targetDepth);
                 if (dr_recursed.valid){
                     dr=dr_recursed;
                 }
@@ -545,7 +561,7 @@ DFSResult search(GameState initialState,int depth){
                 if (dr.score>optimalResult.score){
                     // Defer copying the piece history until actually needed
                     // since this might take a while
-                    for (int i=(depth+1);i<SEARCH_DEPTH;i++){
+                    for (int i=(depth+1);i<targetDepth;i++){
                         dr.placements[i]=dr_recursed.placements[i];
                     }
                     dr.placements[depth]=pl;
@@ -859,11 +875,26 @@ int main(){
             break;
         }
         printf("Next piece:\n");
-        drawPieceQueue(pq,gs.getCurrentStepNum(),SEARCH_DEPTH);
+        drawPieceQueue(pq,gs.getCurrentStepNum(),5);
 
+        DFSResult dfsr;
+        if (CONSTANT_SEARCH_DEPTH){
+            printf("DFS calculating... constant depth %d\n",CONSTANT_SEARCH_DEPTH);
+            dfsr=search(gs,0,CONSTANT_SEARCH_DEPTH);
+        }else{
+            int targetDepth=1;
+            while (targetDepth<MAX_SEARCH_DEPTH){
+                printf("\rDFS calculating... dynamic depth %d  ",targetDepth);
+                fflush(stdout);
+                uint64_t startT=timeSinceEpochMillisec();
+                dfsr=search(gs,0,targetDepth);
+                uint64_t deltaT=timeSinceEpochMillisec()-startT;
+                if (deltaT>ADDITIONAL_DEPTH_THRESH) break;
+                targetDepth++;
+            }
+            printf("\n");
+        }
 
-        printf("DFS calculating...\n");
-        DFSResult dfsr=search(gs,0);
         PlacementResult pr;
         Placement placement;
         if (!dfsr.valid){
