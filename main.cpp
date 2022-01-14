@@ -294,6 +294,7 @@ void drawBoardFancy(Board preplace, Board preclear, Board postclear){
                 printf("  ");
             }else if (celltype==1){
                 // Invalid
+                printf("??");
             }else if (celltype==2){
                 // Cell placed and immediately erased
                 ansiColorSet(RED_BRIGHT);
@@ -306,8 +307,10 @@ void drawBoardFancy(Board preplace, Board preclear, Board postclear){
                 ansiColorSet(NONE);
             }else if (celltype==4){
                 // Invalid
+                printf("??");
             }else if (celltype==5){
                 // Invalid
+                printf("??");
             }else if (celltype==6){
                 //Newly-placed cell
                 ansiColorSet(WHITE_BRIGHT);
@@ -478,7 +481,7 @@ void drawPieceQueue(PieceQueue pq, uint32_t idx, int count){
 
 class GameState{
 private:
-    int score;
+    uint32_t score;
     Board board;
     PieceQueue *pq;
     uint32_t currentPieceIndex;
@@ -501,7 +504,7 @@ public:
     Board getBoard(){
         return board;
     }
-    int getScore(){
+    uint32_t getScore(){
         return score;
     }
     bool applyPlacement(Placement pl){
@@ -521,7 +524,7 @@ public:
 
 struct DFSResult{
     Placement placements[MAX_SEARCH_DEPTH];
-    int score;
+    uint32_t score;
     bool valid;
 };
 typedef struct DFSResult DFSResult;
