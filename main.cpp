@@ -9,11 +9,11 @@
 
 #include <iostream>
 
-struct Block{
+struct Uint8x2{
     uint8_t x;
     uint8_t y;
 };
-typedef struct Block Block;
+typedef struct Uint8x2 Vec2u8;
 
 class Piece{
 private:
@@ -32,14 +32,26 @@ public:
         }
         return n;
     }
-    Block getBlock(int idx){
+    Vec2u8 getBlock(int idx){
         uint32_t p=data;
         p=p>>(6*idx);
-        Block b;
+        Vec2u8 b;
         b.x=p&(0x07);
         p=p>>3;
         b.y=p&(0x07);
         return b;
+    }
+    Vec2u8 calculateBoundingBox(){
+        Vec2u8 res;
+        res.x=0;
+        res.y=0;
+        int n=numBlocks();
+        for (int i=0;i<n;i++){
+            Vec2u8 block=getBlock(i);
+            if (block.x>res.x) res.x=block.x;
+            if (block.y>res.y) res.y=block.y;
+        }
+        return res;
     }
     void addBlock(int x, int y){
         uint32_t p=data;
@@ -63,7 +75,7 @@ public:
     void debug_print(){
         printf("Piece: ");
         for (int i=0;i<numBlocks();i++){
-            Block b=getBlock(i);
+            Vec2u8 b=getBlock(i);
             printf("(%d,%d) ",b.x,b.y);
         }
         printf("\n");
@@ -71,7 +83,7 @@ public:
     bool hasBlockAt(int x, int y){
         // Very unoptimized. Only call in debug/infrequent code plz
         for(int i=0;i<numBlocks();i++){
-            Block b=getBlock(i);
+            Vec2u8 b=getBlock(i);
             if ((b.x==x) && (b.y==y)) return true;
         }
         return false;
@@ -86,7 +98,7 @@ struct Placement{
 };
 typedef struct Placement Placement;
 
-#define MAX_GAME_STEPS 1000
+#define MAX_GAME_STEPS 10000
 class PlacementSequence{
 private:
     Placement placements[MAX_GAME_STEPS];
@@ -141,7 +153,7 @@ void drawPiece(Piece p){
     int maxX=0;
     int maxY=0;
     for(int i=0;i<p.numBlocks();i++){
-        Block b=p.getBlock(i);
+        Vec2u8 b=p.getBlock(i);
         if (b.x>maxX) maxX=b.x;
         if (b.y>maxY) maxY=b.y;
     }
@@ -287,7 +299,7 @@ PlacementResult doPlacement(Board b,Placement pl){
     int n=pl.piece.numBlocks();
     bool success=true;
     for(int i=0;i<n;i++){
-        Block block=pl.piece.getBlock(i);
+        Vec2u8 block=pl.piece.getBlock(i);
         int blockX=block.x;
         int blockY=block.y;
         int absX=blockX+pl.x;
@@ -397,7 +409,6 @@ private:
     Board board;
     PieceQueue *pq;
     int currentPieceIndex;
-    PlacementSequence psq;
     bool dead;
 public:
     GameState(PieceQueue *pieceQueue){
@@ -405,7 +416,6 @@ public:
         board=Board();
         pq=pieceQueue;
         currentPieceIndex=0;
-        psq=PlacementSequence();
         dead=false;
     }
     bool isDead(){
@@ -439,18 +449,11 @@ public:
     void addScore(int n){
         score+=n;
     }
-    void addPlacement(Placement p){
-        psq.addPlacement(p);
-    }
-    PlacementSequence getPsq(){
-        return psq;
-    }
     bool applyPlacement(Placement pl){
         PlacementResult pr=doPlacement(getBoard(),pl);
         if (pr.success){
             setBoard(pr.finalResult);
             addScore(pr.scoreDelta);
-            addPlacement(pl);
             incrementPieceQueue();
             return true;
         }else{
@@ -459,16 +462,28 @@ public:
     }
 };
 
-GameState search(GameState initialState,int depth){
-    if (depth<=0) return initialState;
-    //printf("### DBG: depth %d\n",depth);
+#define SEARCH_DEPTH 4
+struct DFSResult{
+    Placement placements[SEARCH_DEPTH];
+    int score;
+    bool valid;
+};
+typedef struct DFSResult DFSResult;
 
-    GameState optimalState=initialState;
-    int maxScore=INT_MIN;
+DFSResult search(GameState initialState,int depth){
+
+    DFSResult optimalResult;
+    optimalResult.score=INT_MIN;
+    optimalResult.valid=false;
+
+    if (depth>=SEARCH_DEPTH) return optimalResult;
+
     Piece currentPiece=initialState.getCurrentPiece();
     //currentPiece.debug_print();
-    for (int x=0;x<9;x++){
-        for (int y=0;y<9;y++){
+    Vec2u8 bbox;
+    bbox=currentPiece.calculateBoundingBox();
+    for (int x=0;x<(9-bbox.x);x++){
+        for (int y=0;y<(9-bbox.y);y++){
             Placement pl;
             pl.piece=currentPiece;
             pl.x=x;
@@ -478,21 +493,35 @@ GameState search(GameState initialState,int depth){
 
             bool plres=inState.applyPlacement(pl);
             if (plres){
-                GameState outState=search(inState,depth-1);
+                //printf("Depth %d",depth);
+                DFSResult dr;
 
-                if (outState.getScore()>maxScore){
-                    maxScore=outState.getScore();
-                    optimalState=outState;
+                dr.score=inState.getScore();
+                dr.valid=true;
+
+                DFSResult dr_recursed=search(inState,depth+1);
+                if (dr_recursed.valid){
+                    dr=dr_recursed;
                 }
+
+
+                if (dr.score>optimalResult.score){
+
+                    for (int i=(depth+1);i<SEARCH_DEPTH;i++){
+                        dr.placements[i]=dr_recursed.placements[i];
+                    }
+                    dr.placements[depth]=pl;
+
+                    optimalResult=dr;
+                }
+
+
             }
         }
     }
 
-    if (maxScore==INT_MIN){
-        //No placement possible - dead!
-        optimalState.die();
-    }
-    return optimalState;
+
+    return optimalResult;
 }
 
 /*
@@ -820,19 +849,18 @@ int main(){
 
 
         printf("DFS calculating...\n");
-        GameState optimal_gamestate=search(gs,3);
+        DFSResult dfsr=search(gs,0);
         PlacementResult pr;
         Placement placement;
-        PlacementSequence psq=optimal_gamestate.getPsq();
-        if (psq.getLength()<=gs.getCurrentStepNum()){
+        if (!dfsr.valid){
             //No placement! Dead probs.
             printf("No placement possible!\n");
             break;
         }
-        printf("DFS max: %d\n",optimal_gamestate.getScore());
+        printf("DFS max: %d\n",dfsr.score);
 
 
-        placement=psq.get(gs.getCurrentStepNum());
+        placement=dfsr.placements[0];
         pr=doPlacement(gs.getBoard(),placement);
 
         gs.applyPlacement(placement);
