@@ -481,7 +481,7 @@ void drawPieceQueue(PieceQueue pq, uint32_t idx, int count){
 
 class GameState{
 private:
-    uint32_t score;
+    int32_t score;
     Board board;
     PieceQueue *pq;
     uint32_t currentPieceIndex;
@@ -504,7 +504,7 @@ public:
     Board getBoard(){
         return board;
     }
-    uint32_t getScore(){
+    int32_t getScore(){
         return score;
     }
     bool applyPlacement(Placement pl){
@@ -524,7 +524,7 @@ public:
 
 struct DFSResult{
     Placement placements[MAX_SEARCH_DEPTH];
-    uint32_t score;
+    int32_t score;
     bool valid;
 };
 typedef struct DFSResult DFSResult;
@@ -532,7 +532,7 @@ typedef struct DFSResult DFSResult;
 DFSResult search(GameState initialState,int depth,int targetDepth){
 
     DFSResult optimalResult;
-    optimalResult.score=INT_MIN;
+    optimalResult.score=-1000;
     optimalResult.valid=false;
 
     if (depth>=targetDepth) return optimalResult;
