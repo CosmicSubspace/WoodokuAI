@@ -19,11 +19,14 @@
 // The program will go for an additional DFS level
 // If the current DFS took less than ADDITIONAL_DEPTH_THRESH milliseconds.
 #define MAX_SEARCH_DEPTH 10
-#define ADDITIONAL_DEPTH_THRESH 100
+#define ADDITIONAL_DEPTH_THRESH 50
 
-// Maximum game length. Determines the length of the piece queue.
-// Doesn't impace performance too much I think.
-#define MAX_GAME_STEPS 10000
+// Size of the PieceQueue buffer.
+// Should be HIGHER than MAX_SEARCH_DEPTH.
+#define PIECEQUEUE_MAX_PEEK 20
+
+// Maximum game length. 0 for unlimited.
+#define MAX_GAME_STEPS 0
 
 // A lot of code assumes 9x9 board size implicitly.
 // You should probably leave this alone.
@@ -169,27 +172,6 @@ struct Placement{
     uint8_t y;
 };
 typedef struct Placement Placement;
-
-
-class PlacementSequence{
-private:
-    Placement placements[MAX_GAME_STEPS];
-    int length;
-public:
-    PlacementSequence(){
-        length=0;
-    }
-    void addPlacement(Placement p){
-        placements[length]=p;
-        length++;
-    }
-    int getLength(){
-        return length;
-    }
-    Placement get(int idx){
-        return placements[idx];
-    }
-};
 
 
 
@@ -433,27 +415,50 @@ PlacementResult doPlacement(Board b,Placement pl){
     return pr;
 }
 
+
 class PieceQueue{
 private:
-    int numPieces;
-    Piece pieces[MAX_GAME_STEPS];
+    Piece *pp;
+    int pps;
+    uint32_t baseIndex;
+    Piece pieces[PIECEQUEUE_MAX_PEEK];
+    Piece generate(){
+        return pp[rand()%pps];
+    }
 public:
-    PieceQueue(){
-        numPieces=0;
+    PieceQueue(Piece *piecePool, int piecePoolSize){
+        baseIndex=0;
+        pp=piecePool;
+        pps=piecePoolSize;
+        for (int i=0;i<PIECEQUEUE_MAX_PEEK;i++){
+            pieces[i]=generate();
+        }
     }
-    void addPiece(Piece p){
-        pieces[numPieces]=p;
-        numPieces++;
+    void increment(){
+        for (int i=0;i<(PIECEQUEUE_MAX_PEEK-1);i++){
+            pieces[i]=pieces[i+1];
+        }
+        pieces[PIECEQUEUE_MAX_PEEK-1]=generate();
+        baseIndex++;
     }
-    Piece getPiece(int idx){
-        return pieces[idx];
+    void rebase(uint32_t newidx){
+        int diff=newidx-baseIndex;
+        assert(diff>=0);
+        assert (diff<PIECEQUEUE_MAX_PEEK);
+        for (int i=0;i<diff;i++){
+            increment();
+        }
+        assert(baseIndex==newidx);
     }
-    int getLength(){
-        return numPieces;
+    Piece getPiece(uint32_t idx){
+        int diff=idx-baseIndex;
+        assert (diff>=0);
+        assert (diff<PIECEQUEUE_MAX_PEEK);
+        return pieces[diff];
     }
 };
 
-void drawPieceQueue(PieceQueue pq, int idx, int count){
+void drawPieceQueue(PieceQueue pq, uint32_t idx, int count){
     for (int y=0;y<5;y++){
         for (int n=0;n<count;n++){
             Piece p=pq.getPiece(idx+n);
@@ -476,7 +481,7 @@ private:
     int score;
     Board board;
     PieceQueue *pq;
-    int currentPieceIndex;
+    uint32_t currentPieceIndex;
 public:
     GameState(PieceQueue *pieceQueue){
         score=0;
@@ -486,12 +491,11 @@ public:
     }
     void incrementPieceQueue(){
         currentPieceIndex++;
-        if (currentPieceIndex>=(pq->getLength())) currentPieceIndex=(pq->getLength())-1;
     }
     Piece getCurrentPiece(){
         return pq->getPiece(currentPieceIndex);
     }
-    int getCurrentStepNum(){
+    uint32_t getCurrentStepNum(){
         return currentPieceIndex;
     }
     Board getBoard(){
@@ -858,24 +862,24 @@ int main(){
     else srand(time(nullptr));
 
 
-    PieceQueue pq;
-    for(int i=0;i<MAX_GAME_STEPS;i++){
-        pq.addPiece(pieces[rand()%pieceN]);
-    }
-
+    PieceQueue pq(pieces,pieceN);
 
     Board lastBoard;
     GameState gs(&pq);
     while (1){
         printf("\n\n\n");
-        if (gs.getCurrentStepNum() > MAX_GAME_STEPS-10){
-            ansiColorSet(RED);
-            printf("Maximum game length reached!\n");
-            ansiColorSet(NONE);
-            break;
+        if (MAX_GAME_STEPS){
+            if (gs.getCurrentStepNum() >= MAX_GAME_STEPS){
+                ansiColorSet(RED);
+                printf("Maximum game length reached!\n");
+                ansiColorSet(NONE);
+                break;
+            }
         }
         printf("Next piece:\n");
         drawPieceQueue(pq,gs.getCurrentStepNum(),5);
+
+        pq.rebase(gs.getCurrentStepNum());
 
         DFSResult dfsr;
         if (CONSTANT_SEARCH_DEPTH){
