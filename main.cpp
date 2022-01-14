@@ -149,9 +149,9 @@ void drawBoard(Board b){
 
 
 struct PlacementResult{
-    Board result;
     bool success;
-    Board afterDeletion;
+    Board preClear;
+    Board finalResult;
     int scoreDelta;
 };
 typedef struct PlacementResult PlacementResult;
@@ -159,7 +159,6 @@ PlacementResult doPlacement(Board b,Placement pl){
     PlacementResult pr;
 
     int n=pl.piece.numBlocks();
-    //printf("NumBlocks: %d\n",n);
     bool success=true;
     for(int i=0;i<n;i++){
         Block block=pl.piece.getBlock(i);
@@ -167,37 +166,45 @@ PlacementResult doPlacement(Board b,Placement pl){
         int blockY=block.y;
         int absX=blockX+pl.x;
         int absY=blockY+pl.y;
-        //printf("Block:%d %d\n",absX,absY);
 
         if (absX<0 || absX>=BOARD_SIZE) success=false;
         else if (absY<0 || absY>=BOARD_SIZE) success=false;
         else if (b.read(absX,absY) !=0) success=false;
 
+        if (!success) break;
+
         b.write(absX,absY,true);
     }
 
-    pr.result=b;
+    // early abort for fails
     pr.success=success;
+    if (!success) return pr;
+
+    pr.preClear=b;
+
 
     //check lines
-    uint8_t checks[27];
-    for (int i=0;i<27;i++) checks[i]=0xFF;
-    uint8_t *xLines=&checks[0];
-    uint8_t *yLines=&(checks[9]);
-    uint8_t *squares=&(checks[18]);
+    // checks [0..8] X   [9..17] Y   [18..26] Sq
+    // bit is unset if there is an empty cell
+    uint32_t checks=0xFFFFFFFF;
     for (int x=0;x<BOARD_SIZE;x++){
         for (int y=0;y<BOARD_SIZE;y++){
-            uint8_t cell=b.read(x,y);
-            int square=3*(y/3)+(x/3);
-            xLines[x] &= cell;
-            yLines[y] &= cell;
-            squares[square] &= cell;
+            bool cell=b.read(x,y);
+            int sq=3*(y/3)+(x/3);
+
+            if (!cell){
+                uint32_t mask=0;
+                mask |= (1<<(x));
+                mask |= (1<<(y+9));
+                mask |= (1<<(sq+18));
+                checks=checks & (~mask);
+            }
         }
     }
 
     int count=0;
     for (int i=0;i<27;i++) {
-        if (checks[i]) count++;
+        if ((checks >> i) & 1) count++;
     }
 
     int bonus=0;
@@ -206,13 +213,13 @@ PlacementResult doPlacement(Board b,Placement pl){
 
     for (int x=0;x<BOARD_SIZE;x++){
         for (int y=0;y<BOARD_SIZE;y++){
-            int square=3*(y/3)+(x/3);
-            if (xLines[x] != 0) b.write(x,y,false);
-            if (yLines[y] != 0)b.write(x,y,false);
-            if (squares[square] != 0) b.write(x,y,false);
+            int sq=3*(y/3)+(x/3);
+            if ((checks>>(x)) & 1) b.write(x,y,false);
+            if ((checks>>(y+9)) & 1) b.write(x,y,false);
+            if ((checks>>(sq+18)) & 1) b.write(x,y,false);
         }
     }
-    pr.afterDeletion=b;
+    pr.finalResult=b;
     pr.scoreDelta=score;
 
     return pr;
@@ -305,7 +312,7 @@ GameState search(GameState initialState,int depth){
                 //drawBoard(pr.result);
 
                 GameState inState=initialState;
-                inState.setBoard(pr.result);
+                inState.setBoard(pr.finalResult);
                 inState.addScore(pr.scoreDelta);
                 inState.addPlacement(pl);
                 inState.incrementPieceQueue();
@@ -381,14 +388,14 @@ int main(){
     PlacementResult pr=doPlacement(b,pl);
     printf("Placing #1: success? %d\n",pr.success);
     printf("Placing #1: Board\n");
-    drawBoard(pr.result);
+    drawBoard(pr.preClear);
     printf("Placing #1: Deletion\n");
-    drawBoard(pr.afterDeletion);
+    drawBoard(pr.finalResult);
     printf("Placing #1: score %d\n",pr.scoreDelta);
 
     printf("DFS start...\n");
     GameState igs(&pq);
-    GameState fgs=search(igs,4);
+    GameState fgs=search(igs,5);
     printf("DFS max: %d\n",fgs.getScore());
     drawBoard(fgs.getBoard());
 
@@ -397,9 +404,11 @@ int main(){
     Board rp_b=Board();
     for(int i=0;i<rp_psq.getLength();i++){
         PlacementResult pr=doPlacement(rp_b,rp_psq.get(i));
-        rp_b=pr.afterDeletion;
-        printf("Step %d Score delta: %d\n",i,pr.scoreDelta);
-        drawBoard(rp_b);
+        printf("\n\nStep %d \n",i);
+        drawBoard(pr.preClear);
+        printf("Score delta: %d\n",pr.scoreDelta);
+        drawBoard(pr.finalResult);
+        rp_b=pr.finalResult;
     }
     return 0;
 }
