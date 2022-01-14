@@ -5,6 +5,8 @@
 #include "assert.h"
 #include "limits.h"
 
+#include <iostream>
+
 struct Block{
     uint8_t x;
     uint8_t y;
@@ -145,6 +147,64 @@ void drawBoard(Board b){
     buffer[idx++]='\0';
 
     printf("%s", buffer);
+}
+
+const char* NONE="0";
+const char* RED="31";
+const char* RED_BRIGHT="1;31";
+const char* RED_DIM="2;31";
+const char* WHITE="37";
+const char* WHITE_BRIGHT="1;37";
+const char* WHITE_DIM="2;37";
+void ansiColorSet(const char* colorcode){
+    printf("\033[%sm",colorcode);
+}
+void drawBoardFancy(Board preplace, Board preclear, Board postclear){
+    for (int y=0;y<BOARD_SIZE;y++){
+        for (int x=0;x<BOARD_SIZE;x++){
+            int celltype=0;
+            if (preplace.read(x,y)) celltype |= 1;
+            if (preclear.read(x,y)) celltype |= 2;
+            if (postclear.read(x,y)) celltype |= 4;
+
+            if (celltype==0){
+                //Empty cell
+                printf("  ");
+            }else if (celltype==1){
+                // Invalid
+            }else if (celltype==2){
+                // Cell placed and immediately erased
+                ansiColorSet(RED_BRIGHT);
+                printf("[]");
+                ansiColorSet(NONE);
+            }else if (celltype==3){
+                // Existing cell, erased
+                ansiColorSet(RED);
+                printf("[]");
+                ansiColorSet(NONE);
+            }else if (celltype==4){
+                // Invalid
+            }else if (celltype==5){
+                // Invalid
+            }else if (celltype==6){
+                //Newly-placed cell
+                ansiColorSet(WHITE_BRIGHT);
+                printf("[]");
+                ansiColorSet(NONE);
+            }else if (celltype==7){
+                //Untouched cell
+                ansiColorSet(WHITE_DIM);
+                printf("[]");
+                ansiColorSet(NONE);
+            }
+
+        }
+        printf("\n");
+    }
+}
+
+void waitForEnter(){
+    std::cin.get();
 }
 
 
@@ -400,15 +460,20 @@ int main(){
     drawBoard(fgs.getBoard());
 
     //Replay
-    PlacementSequence rp_psq=fgs.getPsq();
-    Board rp_b=Board();
-    for(int i=0;i<rp_psq.getLength();i++){
-        PlacementResult pr=doPlacement(rp_b,rp_psq.get(i));
-        printf("\n\nStep %d \n",i);
-        drawBoard(pr.preClear);
-        printf("Score delta: %d\n",pr.scoreDelta);
-        drawBoard(pr.finalResult);
-        rp_b=pr.finalResult;
+    while (1){
+        printf("\n\n\nBegin replay:\n");
+        PlacementSequence rp_psq=fgs.getPsq();
+        Board rp_b=Board();
+        Board lastBoard;
+        for(int i=0;i<rp_psq.getLength();i++){
+            PlacementResult pr=doPlacement(rp_b,rp_psq.get(i));
+            printf("\n\nStep %d \n",i);
+            printf("Score delta: %d\n",pr.scoreDelta);
+            rp_b=pr.finalResult;
+            drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
+            lastBoard=pr.finalResult;
+            waitForEnter();
+        }
     }
     return 0;
 }
