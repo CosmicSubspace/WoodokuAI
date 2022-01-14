@@ -86,7 +86,7 @@ struct Placement{
 };
 typedef struct Placement Placement;
 
-#define MAX_GAME_STEPS 300
+#define MAX_GAME_STEPS 1000
 class PlacementSequence{
 private:
     Placement placements[MAX_GAME_STEPS];
@@ -158,6 +158,8 @@ void drawPiece(Piece p){
     }
 }
 
+
+
 void drawBoard(Board b){
     char buffer[(BOARD_SIZE*2+1)*BOARD_SIZE+1];
     int idx=0;
@@ -184,14 +186,39 @@ const char* NONE="0";
 const char* RED="31";
 const char* RED_BRIGHT="1;31";
 const char* RED_DIM="2;31";
+const char* GREEN="32";
+const char* GREEN_BRIGHT="1;32";
+const char* GREEN_DIM="2;32";
+const char* YELLOW="33";
+const char* YELLOW_BRIGHT="1;33";
+const char* YELLOW_DIM="2;33";
+const char* BLUE="34";
+const char* BLUE_BRIGHT="1;34";
+const char* BLUE_DIM="2;34";
+const char* MAGENTA="35";
+const char* MAGENTA_BRIGHT="1;35";
+const char* MAGENTA_DIM="2;35";
+const char* CYAN="36";
+const char* CYAN_BRIGHT="1;36";
+const char* CYAN_DIM="2;36";
 const char* WHITE="37";
 const char* WHITE_BRIGHT="1;37";
 const char* WHITE_DIM="2;37";
+
 void ansiColorSet(const char* colorcode){
     printf("\033[%sm",colorcode);
 }
 void drawBoardFancy(Board preplace, Board preclear, Board postclear){
+    printf(" ");
+    for (int x=0;x<BOARD_SIZE;x++){
+        if ((x/3)%2==0)printf("--");
+        else printf("  ");
+    }
+    printf("\n");
+
     for (int y=0;y<BOARD_SIZE;y++){
+        if ((y/3)%2==0) printf("|");
+        else printf(" ");
         for (int x=0;x<BOARD_SIZE;x++){
             int celltype=0;
             if (preplace.read(x,y)) celltype |= 1;
@@ -228,10 +255,18 @@ void drawBoardFancy(Board preplace, Board preclear, Board postclear){
                 printf("[]");
                 ansiColorSet(NONE);
             }
-
         }
+        if ((y/3)%2==0) printf("|");
+        else printf(" ");
         printf("\n");
     }
+
+    printf(" ");
+    for (int x=0;x<BOARD_SIZE;x++){
+        if ((x/3)%2==0)printf("--");
+        else printf("  ");
+    }
+    printf("\n");
 }
 
 void waitForEnter(){
@@ -336,6 +371,25 @@ public:
     }
 
 };
+
+void drawPieceQueue(PieceQueue pq, int idx, int count){
+    for (int y=0;y<5;y++){
+        for (int n=0;n<count;n++){
+            Piece p=pq.getPiece(idx+n);
+            for(int x=0;x<6;x++){
+                if (p.hasBlockAt(x,y)){
+                    if (n==0) ansiColorSet(CYAN_BRIGHT);
+                    printf("[]");
+                    if (n==0) ansiColorSet(NONE);
+                }else{
+                    printf("  ");
+                }
+            }
+
+        }
+        printf("\n");
+    }
+}
 
 class GameState{
 private:
@@ -760,13 +814,13 @@ int main(){
             break;
         }
         printf("Next piece:\n");
-        drawPiece(pq.getPiece(gs.getCurrentStepNum()));
+        drawPieceQueue(pq,gs.getCurrentStepNum(),5);
+        //drawPiece(pq.getPiece(gs.getCurrentStepNum()));
 
-        //printf("Enter to coninue...\n");
-        //waitForEnter();
+
 
         printf("DFS calculating...\n");
-        GameState optimal_gamestate=search(gs,4);
+        GameState optimal_gamestate=search(gs,3);
         PlacementResult pr;
         Placement placement;
         PlacementSequence psq=optimal_gamestate.getPsq();
@@ -787,6 +841,10 @@ int main(){
         drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
 
         lastBoard=pr.finalResult;
+
+
+        //printf("Enter to coninue...\n");
+        //waitForEnter();
     }
 
     return 0;
