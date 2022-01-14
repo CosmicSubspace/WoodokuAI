@@ -409,30 +409,274 @@ int main(){
     Piece pieces[MAX_GAME_STEPS];
     int pieceN=0;
 
+    // AUTO GENERATED CODE BELOW
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
     tmp=Piece();
     tmp.addBlock(0,0);
     tmp.addBlock(1,0);
     tmp.addBlock(2,0);
     tmp.addBlock(1,1);
     pieces[pieceN++]=tmp;
+
     tmp=Piece();
     tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    pieces[pieceN++]=tmp;
-    tmp=Piece();
     tmp.addBlock(0,1);
     tmp.addBlock(1,1);
-    tmp.addBlock(1,0);
-    tmp.addBlock(1,2);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-    tmp=Piece();
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,3);
     tmp.addBlock(0,2);
     pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(0,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(2,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(0,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(1,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(2,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    tmp.addBlock(2,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    tmp.addBlock(0,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(1,2);
+    tmp.addBlock(2,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(3,0);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(0,3);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(3,0);
+    tmp.addBlock(4,0);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(0,3);
+    tmp.addBlock(0,4);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(3,0);
+    tmp.addBlock(2,1);
+    tmp.addBlock(1,2);
+    tmp.addBlock(0,3);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,2);
+    tmp.addBlock(3,3);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(2,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(0,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,1);
+    pieces[pieceN++]=tmp;
+
 
     PieceQueue pq;
     for(int i=0;i<MAX_GAME_STEPS;i++){
