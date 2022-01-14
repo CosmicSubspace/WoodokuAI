@@ -19,11 +19,10 @@
 // The program will go for an additional DFS level
 // If the current DFS took less than ADDITIONAL_DEPTH_THRESH milliseconds.
 #define MAX_SEARCH_DEPTH 10
-#define ADDITIONAL_DEPTH_THRESH 50
+#define ADDITIONAL_DEPTH_THRESH 100
 
 // Size of the PieceQueue buffer.
-// Should be HIGHER than MAX_SEARCH_DEPTH.
-#define PIECEQUEUE_MAX_PEEK 20
+#define PIECEQUEUE_SIZE 20
 
 // Maximum game length. 0 for unlimited.
 #define MAX_GAME_STEPS 0
@@ -32,18 +31,13 @@
 // You should probably leave this alone.
 #define BOARD_SIZE 9
 
-// Use space-inefficient but APU-minimized version of Piece class.
-// May increase performance if APU bound
-// But may do the opposite if memory bound.
-// Results in ~5% perforance DECREASE on Pinephone (ARM Allwinner A64)
-//#define USE_MEMORY_HEAVY_PIECE_CLASS
-
 // Use constant seed. Useful for performance measurement.
 // Use 0 to disable.
 #define CONSTANT_SEED 0
 
+#define INVISBLE_PIECE_MONTE_CARLO_ITER 10
 
-
+#define PREVIEW_PIECES 5
 
 
 uint64_t timeSinceEpochMillisec() {
@@ -57,38 +51,10 @@ struct Uint8x2{
 };
 typedef struct Uint8x2 Vec2u8;
 
-
+//0..5, 6..11, 12..17, 18..23, 24..29 Block X,Y
+//30 reserved (default 1)
+//31 reserved (default 1)
 class Piece{
-#ifdef USE_MEMORY_HEAVY_PIECE_CLASS
-private:
-    int numBlocksCache;
-    Vec2u8 blockCache[5];
-    Vec2u8 boundingBoxCache;
-public:
-    Piece(){
-        numBlocksCache=0;
-        boundingBoxCache.x=0;
-        boundingBoxCache.y=0;
-    }
-
-    int numBlocks(){
-        return numBlocksCache;
-    }
-    Vec2u8 getBlock(int idx){
-        return blockCache[idx];
-    }
-    Vec2u8 calculateBoundingBox(){
-        return boundingBoxCache;
-    }
-    void addBlock(int x, int y){
-        blockCache[numBlocksCache].x=x;
-        blockCache[numBlocksCache].y=y;
-        numBlocksCache++;
-        if (x>boundingBoxCache.x) boundingBoxCache.x=x;
-        if (y>boundingBoxCache.y) boundingBoxCache.y=y;
-    }
-#endif
-#ifndef USE_MEMORY_HEAVY_PIECE_CLASS
 private:
     uint32_t data;
 public:
@@ -146,7 +112,7 @@ public:
         data=p;
         //do nothing if error - maybe handle errors or smth
     }
-#endif
+
     void debug_print(){
         printf("Piece: ");
         for (int i=0;i<numBlocks();i++){
@@ -419,61 +385,95 @@ PlacementResult doPlacement(Board b,Placement pl){
 }
 
 
-class PieceQueue{
+class PieceGenerator{
 private:
     Piece *pp;
     int pps;
-    uint32_t baseIndex;
-    Piece pieces[PIECEQUEUE_MAX_PEEK];
+public:
+    PieceGenerator(Piece *piecePool, int piecePoolSize){
+        pp=piecePool;
+        pps=piecePoolSize;
+    }
     Piece generate(){
         return pp[rand()%pps];
     }
+};
+PieceGenerator *globalPG;
+
+class PieceQueue{
+private:
+    uint32_t baseIndex;
+    uint32_t hiddenStart;
+    Piece pieces[PIECEQUEUE_SIZE];
+    int queue_size;
 public:
-    PieceQueue(Piece *piecePool, int piecePoolSize){
+    PieceQueue(){
         baseIndex=0;
-        pp=piecePool;
-        pps=piecePoolSize;
-        for (int i=0;i<PIECEQUEUE_MAX_PEEK;i++){
-            pieces[i]=generate();
-        }
+        queue_size=0;
     }
     void increment(){
-        for (int i=0;i<(PIECEQUEUE_MAX_PEEK-1);i++){
+        for (int i=0;i<(PIECEQUEUE_SIZE-1);i++){
             pieces[i]=pieces[i+1];
         }
-        pieces[PIECEQUEUE_MAX_PEEK-1]=generate();
         baseIndex++;
+        queue_size--;
     }
     void rebase(uint32_t newidx){
         int diff=newidx-baseIndex;
-        assert(diff>=0);
-        assert (diff<PIECEQUEUE_MAX_PEEK);
+        if (diff==0) return;
+        assert (diff>=0);
+        assert (diff<queue_size);
         for (int i=0;i<diff;i++){
             increment();
         }
         assert(baseIndex==newidx);
     }
+    void addPiece(Piece p){
+        pieces[queue_size]=p;
+        queue_size++;
+        assert(queue_size<=PIECEQUEUE_SIZE);
+    }
     Piece getPiece(uint32_t idx){
         int diff=idx-baseIndex;
         assert (diff>=0);
-        assert (diff<PIECEQUEUE_MAX_PEEK);
+        assert (diff<queue_size);
         return pieces[diff];
+    }
+    bool isVisible(uint32_t idx){
+        return (idx<baseIndex+queue_size);
+    }
+    int getQueueLength(){
+        return queue_size;
     }
 };
 
-void drawPieceQueue(PieceQueue pq, uint32_t idx, int count){
+void drawPieceQueue(PieceQueue *pq, uint32_t idx, int count, int dfsrange){
     for (int y=0;y<5;y++){
         for (int n=0;n<count;n++){
-            Piece p=pq.getPiece(idx+n);
+            bool visible=pq->isVisible(idx+n);
+            Piece p;
+            if (visible) p=pq->getPiece(idx+n);
+
+            if (n==dfsrange) printf(" | ");
+
             for(int x=0;x<6;x++){
-                if (p.hasBlockAt(x,y)){
+                if (visible && p.hasBlockAt(x,y)){
                     if (n==0) ansiColorSet(CYAN_BRIGHT);
+                    else if (n<dfsrange) ansiColorSet(CYAN_DIM);
+                    else ansiColorSet(WHITE_DIM);
                     printf("[]");
-                    if (n==0) ansiColorSet(NONE);
+                    ansiColorSet(NONE);
+                }else if ((!visible) && y==1 && (x/2)==1){
+                    if (n==0) ansiColorSet(CYAN_BRIGHT);
+                    else if (n<dfsrange) ansiColorSet(CYAN_DIM);
+                    else ansiColorSet(WHITE_DIM);
+                    printf("??");
+                    ansiColorSet(NONE);
                 }else{
                     printf("  ");
                 }
             }
+
         }
         printf("\n");
     }
@@ -497,6 +497,9 @@ public:
     }
     Piece getCurrentPiece(){
         return pq->getPiece(currentPieceIndex);
+    }
+    bool currentPieceVisible(){
+        return pq->isVisible(currentPieceIndex);
     }
     uint32_t getCurrentStepNum(){
         return currentPieceIndex;
@@ -523,7 +526,7 @@ public:
 
 
 struct DFSResult{
-    Placement placements[MAX_SEARCH_DEPTH];
+    Placement bestPlacement;
     int32_t score;
     bool valid;
 };
@@ -531,55 +534,78 @@ typedef struct DFSResult DFSResult;
 
 DFSResult search(GameState initialState,int depth,int targetDepth){
 
-    DFSResult optimalResult;
-    optimalResult.score=-1000;
-    optimalResult.valid=false;
+    DFSResult nullResult;
+    nullResult.score=-100;
+    nullResult.valid=false;
 
-    if (depth>=targetDepth) return optimalResult;
+    if (depth>=targetDepth) return nullResult;
 
-    Piece currentPiece=initialState.getCurrentPiece();
+    DFSResult res;
+    res.valid=false;
 
-    //Prune loops a little with some simple bounding box calculation
-    Vec2u8 bbox;
-    bbox=currentPiece.calculateBoundingBox();
-    for (int x=0;x<(9-bbox.x);x++){
-        for (int y=0;y<(9-bbox.y);y++){
-            Placement pl;
-            pl.piece=currentPiece;
-            pl.x=x;
-            pl.y=y;
+    bool piece_visible=initialState.currentPieceVisible();
+    Piece currentPiece;
+    if (piece_visible) currentPiece=initialState.getCurrentPiece();
+    //printf("Depth %d\n",depth);
+    //drawPiece(currentPiece);
 
-            GameState inState=initialState;
+    int piece_count=1;
+    if (!piece_visible) piece_count=INVISBLE_PIECE_MONTE_CARLO_ITER;
 
-            bool plres=inState.applyPlacement(pl);
-            if (plres){
-                // DFS result until here
-                DFSResult dr;
-                dr.score=inState.getScore();
-                dr.valid=true;
+    int32_t score_totals=0;
+    for (int pidx=0;pidx<piece_count;pidx++){
+        if (!piece_visible) {
+            //printf("Invidible piece!\n");
+            currentPiece=globalPG->generate();
+        }
 
-                // Try recursing, if successful, copy result
-                DFSResult dr_recursed=search(inState,depth+1,targetDepth);
-                if (dr_recursed.valid){
-                    dr=dr_recursed;
-                }
+        DFSResult optimalResult=nullResult;
+        //Prune loops a little with some simple bounding box calculation
+        Vec2u8 bbox;
+        bbox=currentPiece.calculateBoundingBox();
+        for (int x=0;x<(9-bbox.x);x++){
+            for (int y=0;y<(9-bbox.y);y++){
+                Placement pl;
+                pl.piece=currentPiece;
+                pl.x=x;
+                pl.y=y;
 
-                // Copy result into optimal is score greatest
-                if (dr.score>optimalResult.score){
-                    // Defer copying the piece history until actually needed
-                    // since this might take a while
-                    for (int i=(depth+1);i<targetDepth;i++){
-                        dr.placements[i]=dr_recursed.placements[i];
+                GameState inState=initialState;
+
+                bool plres=inState.applyPlacement(pl);
+                if (plres){
+                    //printf("Depth %d X %d Y %d\n",depth,x,y);
+                    // DFS result until here
+                    DFSResult dr;
+                    dr.score=inState.getScore();
+                    dr.bestPlacement=pl;
+                    dr.valid=true;
+
+                    // Try recursing, if successful, copy result
+                    DFSResult dr_recursed=search(inState,depth+1,targetDepth);
+                    if (dr_recursed.valid){
+                        dr.score=dr_recursed.score;
                     }
-                    dr.placements[depth]=pl;
 
-                    optimalResult=dr;
+                    // Copy result into optimal if score greatest
+                    if (dr.score>optimalResult.score){
+                        optimalResult=dr;
+                    }
                 }
             }
         }
+
+        if (optimalResult.valid){
+            score_totals+=optimalResult.score;
+            res.valid=true; //vaild if at least one of the possibilities is valid.
+            res.bestPlacement=optimalResult.bestPlacement;
+        }else{
+            score_totals+=(-1000);
+        }
     }
 
-    return optimalResult;
+    res.score=score_totals/piece_count;
+    return res;
 }
 
 /*
@@ -865,11 +891,13 @@ int main(){
     else srand(time(nullptr));
 
 
-    PieceQueue pq(pieces,pieceN);
-
+    PieceQueue pq;
+    PieceGenerator pcgn(pieces,pieceN);
+    globalPG=&pcgn;
     Board lastBoard;
     GameState gs(&pq);
     while (1){
+
         printf("\n\n\n");
         if (MAX_GAME_STEPS){
             if (gs.getCurrentStepNum() >= MAX_GAME_STEPS){
@@ -879,28 +907,42 @@ int main(){
                 break;
             }
         }
-        printf("Next piece:\n");
-        drawPieceQueue(pq,gs.getCurrentStepNum(),5);
+
+
+        if (!pq.isVisible(gs.getCurrentStepNum())) {
+            pq.addPiece(pcgn.generate());
+            pq.addPiece(pcgn.generate());
+            pq.addPiece(pcgn.generate());
+        }
+        //while(!pq.isVisible(gs.getCurrentStepNum()+0)) pq.addPiece(pcgn.generate());
 
         pq.rebase(gs.getCurrentStepNum());
 
+
+
+
+
         DFSResult dfsr;
+        int dfsDepth;
         if (CONSTANT_SEARCH_DEPTH){
-            printf("DFS calculating... constant depth %d\n",CONSTANT_SEARCH_DEPTH);
-            dfsr=search(gs,0,CONSTANT_SEARCH_DEPTH);
+            dfsDepth=CONSTANT_SEARCH_DEPTH;
+            printf("DFS calculating... constant depth %d\n",dfsDepth);
+            dfsr=search(gs,0,dfsDepth);
         }else{
-            int targetDepth=1;
-            while (targetDepth<MAX_SEARCH_DEPTH){
-                printf("\rDFS calculating... dynamic depth %d  ",targetDepth);
+            dfsDepth=1;
+            while (dfsDepth<MAX_SEARCH_DEPTH){
+                printf("\rDFS calculating... dynamic depth %d  ",dfsDepth);
                 fflush(stdout);
                 uint64_t startT=timeSinceEpochMillisec();
-                dfsr=search(gs,0,targetDepth);
+                dfsr=search(gs,0,dfsDepth);
                 uint64_t deltaT=timeSinceEpochMillisec()-startT;
                 if (deltaT>ADDITIONAL_DEPTH_THRESH) break;
-                targetDepth++;
+                dfsDepth++;
             }
             printf("\n");
         }
+
+        drawPieceQueue(&pq,gs.getCurrentStepNum(),PREVIEW_PIECES,dfsDepth);
 
         PlacementResult pr;
         Placement placement;
@@ -914,7 +956,7 @@ int main(){
         printf("DFS max: %d\n",dfsr.score);
 
 
-        placement=dfsr.placements[0];
+        placement=dfsr.bestPlacement;
         pr=doPlacement(gs.getBoard(),placement);
 
         gs.applyPlacement(placement);
