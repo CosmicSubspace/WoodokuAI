@@ -11,7 +11,7 @@ struct Block{
 typedef struct Block Block;
 
 typedef uint32_t Piece;
-static Piece initialPiece=0xFFFFFFFF;
+const Piece initialPiece=0xFFFFFFFF;
 int numBlocks(Piece p){
     int n=0;
     while ((p&(0x3F)) != 0x3F){
@@ -55,6 +55,22 @@ struct Placement{
     uint8_t y;
 };
 typedef struct Placement Placement;
+
+#define MAX_GAME_STEPS 100
+struct PlacementSequence{
+    Placement placements[MAX_GAME_STEPS];
+    int length;
+};
+typedef struct PlacementSequence PlacementSequence;
+PlacementSequence emptyPSq(){
+    PlacementSequence psq;
+    psq.length=0;
+    return psq;
+}
+void addPlacement(PlacementSequence *psq, Placement p){
+    psq->placements[psq->length]=p;
+    psq->length++;
+}
 
 
 #define BOARD_SIZE 9
@@ -105,7 +121,7 @@ void drawBoard(Board b){
     }
     buffer[idx++]='\0';
 
-    printf(buffer);
+    printf("%s", buffer);
 }
 
 
@@ -196,8 +212,17 @@ struct GameState{
     int score;
     Board board;
     PieceQueue pq;
+    PlacementSequence psq;
 };
 typedef struct GameState GameState;
+GameState initialGameState(PieceQueue pq){
+    GameState gs;
+    gs.score=0;
+    gs.board=newBoard();
+    gs.pq=pq;
+    gs.psq=emptyPSq();
+    return gs;
+}
 
 GameState search(GameState gs,int depth){
     if (depth<=0) return gs;
@@ -219,6 +244,8 @@ GameState search(GameState gs,int depth){
                 inState.score=gs.score+pr.scoreDelta;
                 inState.pq=gs.pq;
                 inState.pq.currentIndex++;
+                inState.psq=gs.psq;
+                addPlacement(&inState.psq,pl);
                 GameState outState=search(inState,depth-1);
 
                 if (outState.score>optimalState.score) optimalState=outState;
@@ -271,7 +298,7 @@ int main(){
     PieceQueue pq;
     pq.numPieces=0;
     pq.currentIndex=0;
-    pq.pieces= (Piece *) malloc(sizeof(Piece)*100);
+    pq.pieces= (Piece *) malloc(sizeof(Piece)*MAX_GAME_STEPS);
 
     pq.pieces[pq.numPieces++]=t1;
     pq.pieces[pq.numPieces++]=t1;
@@ -308,8 +335,18 @@ int main(){
     igs.board=newBoard();
     igs.score=0;
     igs.pq=pq;
-    GameState fgs=search(igs,5);
+    GameState fgs=search(igs,4);
     printf("DFS max: %d\n",fgs.score);
     drawBoard(fgs.board);
+
+    //Replay
+    PlacementSequence rp_psq=fgs.psq;
+    Board rp_b=newBoard();
+    for(int i=0;i<rp_psq.length;i++){
+        PlacementResult pr=doPlacement(rp_b,rp_psq.placements[i]);
+        rp_b=pr.afterDeletion;
+        printf("Step %d Score delta: %d\n",i,pr.scoreDelta);
+        drawBoard(rp_b);
+    }
     return 0;
 }
