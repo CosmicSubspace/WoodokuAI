@@ -4,6 +4,7 @@
 #include "stdbool.h"
 #include "assert.h"
 #include "limits.h"
+#include "time.h"
 
 
 #include <iostream>
@@ -67,6 +68,14 @@ public:
         }
         printf("\n");
     }
+    bool hasBlockAt(int x, int y){
+        // Very unoptimized. Only call in debug/infrequent code plz
+        for(int i=0;i<numBlocks();i++){
+            Block b=getBlock(i);
+            if ((b.x==x) && (b.y==y)) return true;
+        }
+        return false;
+    }
 };
 
 
@@ -77,7 +86,7 @@ struct Placement{
 };
 typedef struct Placement Placement;
 
-#define MAX_GAME_STEPS 100
+#define MAX_GAME_STEPS 300
 class PlacementSequence{
 private:
     Placement placements[MAX_GAME_STEPS];
@@ -127,6 +136,27 @@ public:
     }
 
 };
+
+void drawPiece(Piece p){
+    int maxX=0;
+    int maxY=0;
+    for(int i=0;i<p.numBlocks();i++){
+        Block b=p.getBlock(i);
+        if (b.x>maxX) maxX=b.x;
+        if (b.y>maxY) maxY=b.y;
+    }
+
+    for (int y=0;y<=maxY;y++){
+        for(int x=0;x<=maxX;x++){
+            if (p.hasBlockAt(x,y)){
+                printf("[]");
+            }else{
+                printf("  ");
+            }
+        }
+        printf("\n");
+    }
+}
 
 void drawBoard(Board b){
     char buffer[(BOARD_SIZE*2+1)*BOARD_SIZE+1];
@@ -314,6 +344,7 @@ private:
     PieceQueue *pq;
     int currentPieceIndex;
     PlacementSequence psq;
+    bool dead;
 public:
     GameState(PieceQueue *pieceQueue){
         score=0;
@@ -321,6 +352,13 @@ public:
         pq=pieceQueue;
         currentPieceIndex=0;
         psq=PlacementSequence();
+        dead=false;
+    }
+    bool isDead(){
+        return dead;
+    }
+    void die(){
+        dead=true;
     }
     void incrementPieceQueue(){
         currentPieceIndex++;
@@ -395,13 +433,16 @@ GameState search(GameState initialState,int depth){
             }
         }
     }
+
+    if (maxScore==INT_MIN){
+        //No placement possible - dead!
+        optimalState.die();
+    }
     return optimalState;
 }
 
 /*
  * TODO
- * piece auto-generate
- * PieceQueue auto-generate
  * Monte-carlo searching
  */
 int main(){
@@ -678,6 +719,9 @@ int main(){
     pieces[pieceN++]=tmp;
 
 
+    srand(time(nullptr));
+
+
     PieceQueue pq;
     for(int i=0;i<MAX_GAME_STEPS;i++){
         pq.addPiece(pieces[rand()%pieceN]);
@@ -711,22 +755,37 @@ int main(){
     Board lastBoard;
     GameState gs(&pq);
     while (1){
+        printf("\n\n\n");
         if (gs.getCurrentStepNum() > MAX_GAME_STEPS-10){
             break;
         }
+        printf("Next piece:\n");
+        drawPiece(pq.getPiece(gs.getCurrentStepNum()));
 
-        printf("DFS start...\n");
+        //printf("Enter to coninue...\n");
+        //waitForEnter();
+
+        printf("DFS calculating...\n");
         GameState optimal_gamestate=search(gs,4);
-        printf("DFS max: %d\n",optimal_gamestate.getScore());
         PlacementResult pr;
         Placement placement;
-        placement=optimal_gamestate.getPsq().get(gs.getCurrentStepNum());
+        PlacementSequence psq=optimal_gamestate.getPsq();
+        if (psq.getLength()<=gs.getCurrentStepNum()){
+            //No placement! Dead probs.
+            printf("No placement possible!\n");
+            break;
+        }
+        printf("DFS max: %d\n",optimal_gamestate.getScore());
+
+
+        placement=psq.get(gs.getCurrentStepNum());
         pr=doPlacement(gs.getBoard(),placement);
-        printf("\n\nStep %d \n",gs.getCurrentStepNum());
-        printf("Score delta: %d\n",pr.scoreDelta);
-        drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
 
         gs.applyPlacement(placement);
+        printf("Step %d \n",gs.getCurrentStepNum());
+        printf("Score: %d (+%d)\n",gs.getScore(),pr.scoreDelta);
+        drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
+
         lastBoard=pr.finalResult;
     }
 
