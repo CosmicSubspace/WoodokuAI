@@ -9,6 +9,20 @@
 
 #include <iostream>
 
+
+// Crucial constant, determines the DFS search depth
+// Has very heavy impact on speed and smartness.
+#define SEARCH_DEPTH 4
+
+// Maximum game length. Determines the length of the piece queue.
+// Doesn't impace performance too much I think.
+#define MAX_GAME_STEPS 10000
+
+// Should probably leave this alone...
+#define BOARD_SIZE 9
+
+
+
 struct Uint8x2{
     uint8_t x;
     uint8_t y;
@@ -98,7 +112,7 @@ struct Placement{
 };
 typedef struct Placement Placement;
 
-#define MAX_GAME_STEPS 10000
+
 class PlacementSequence{
 private:
     Placement placements[MAX_GAME_STEPS];
@@ -120,7 +134,7 @@ public:
 };
 
 
-#define BOARD_SIZE 9
+
 class Board{
 private:
     uint32_t bitfield[3];
@@ -146,8 +160,8 @@ public:
         if (value) bitfield[varnum] |= (1<<bitnum);
         else bitfield[varnum] &= ~(1<<bitnum);
     }
-
 };
+
 
 void drawPiece(Piece p){
     int maxX=0;
@@ -171,7 +185,6 @@ void drawPiece(Piece p){
 }
 
 
-
 void drawBoard(Board b){
     char buffer[(BOARD_SIZE*2+1)*BOARD_SIZE+1];
     int idx=0;
@@ -185,7 +198,6 @@ void drawBoard(Board b){
                 buffer[idx++]=' ';
                 buffer[idx++]=' ';
             }
-
         }
         buffer[idx++]='\n';
     }
@@ -381,7 +393,6 @@ public:
     int getLength(){
         return numPieces;
     }
-
 };
 
 void drawPieceQueue(PieceQueue pq, int idx, int count){
@@ -397,7 +408,6 @@ void drawPieceQueue(PieceQueue pq, int idx, int count){
                     printf("  ");
                 }
             }
-
         }
         printf("\n");
     }
@@ -409,27 +419,16 @@ private:
     Board board;
     PieceQueue *pq;
     int currentPieceIndex;
-    bool dead;
 public:
     GameState(PieceQueue *pieceQueue){
         score=0;
         board=Board();
         pq=pieceQueue;
         currentPieceIndex=0;
-        dead=false;
-    }
-    bool isDead(){
-        return dead;
-    }
-    void die(){
-        dead=true;
     }
     void incrementPieceQueue(){
         currentPieceIndex++;
         if (currentPieceIndex>=(pq->getLength())) currentPieceIndex=(pq->getLength())-1;
-    }
-    bool atEnd(){
-        return currentPieceIndex+1>=(pq->getLength());
     }
     Piece getCurrentPiece(){
         return pq->getPiece(currentPieceIndex);
@@ -440,20 +439,14 @@ public:
     Board getBoard(){
         return board;
     }
-    void setBoard(Board b){
-        board=b;
-    }
     int getScore(){
         return score;
-    }
-    void addScore(int n){
-        score+=n;
     }
     bool applyPlacement(Placement pl){
         PlacementResult pr=doPlacement(getBoard(),pl);
         if (pr.success){
-            setBoard(pr.finalResult);
-            addScore(pr.scoreDelta);
+            board=pr.finalResult;
+            score+=pr.scoreDelta;
             incrementPieceQueue();
             return true;
         }else{
@@ -462,7 +455,8 @@ public:
     }
 };
 
-#define SEARCH_DEPTH 4
+
+
 struct DFSResult{
     Placement placements[SEARCH_DEPTH];
     int score;
@@ -479,7 +473,8 @@ DFSResult search(GameState initialState,int depth){
     if (depth>=SEARCH_DEPTH) return optimalResult;
 
     Piece currentPiece=initialState.getCurrentPiece();
-    //currentPiece.debug_print();
+
+    //Prune loops a little with some simple bounding box calculation
     Vec2u8 bbox;
     bbox=currentPiece.calculateBoundingBox();
     for (int x=0;x<(9-bbox.x);x++){
@@ -493,20 +488,21 @@ DFSResult search(GameState initialState,int depth){
 
             bool plres=inState.applyPlacement(pl);
             if (plres){
-                //printf("Depth %d",depth);
+                // DFS result until here
                 DFSResult dr;
-
                 dr.score=inState.getScore();
                 dr.valid=true;
 
+                // Try recursing, if successful, copy result
                 DFSResult dr_recursed=search(inState,depth+1);
                 if (dr_recursed.valid){
                     dr=dr_recursed;
                 }
 
-
+                // Copy result into optimal is score greatest
                 if (dr.score>optimalResult.score){
-
+                    // Defer copying the piece history until actually needed
+                    // since this might take a while
                     for (int i=(depth+1);i<SEARCH_DEPTH;i++){
                         dr.placements[i]=dr_recursed.placements[i];
                     }
@@ -514,12 +510,9 @@ DFSResult search(GameState initialState,int depth){
 
                     optimalResult=dr;
                 }
-
-
             }
         }
     }
-
 
     return optimalResult;
 }
@@ -528,9 +521,11 @@ DFSResult search(GameState initialState,int depth){
  * TODO
  * Monte-carlo searching
  */
+
+#define NUM_PIECES 64
 int main(){
     Piece tmp;
-    Piece pieces[MAX_GAME_STEPS];
+    Piece pieces[NUM_PIECES];
     int pieceN=0;
 
     // AUTO GENERATED CODE BELOW
@@ -811,30 +806,6 @@ int main(){
     }
 
 
-
-
-    Placement pl;
-    pl.piece=pieces[0];
-    pl.x=2;
-    pl.y=2;
-
-
-    Board b=Board();
-    //b.bitfield[0]=0xDEADBEEF;
-    b.write(2,2,true);
-    /*
-    printf("Placing #1: %d\n",tryAndPlace(&piecedefs[0],board,0,0));
-    printf("Placing #2: %d\n",tryAndPlace(&piecedefs[0],board,0,0));
-    printf("Placing #3: %d\n",tryAndPlace(&piecedefs[0],board,3,3));*/
-
-    PlacementResult pr=doPlacement(b,pl);
-    printf("Placing #1: success? %d\n",pr.success);
-    printf("Placing #1: Board\n");
-    drawBoard(pr.preClear);
-    printf("Placing #1: Deletion\n");
-    drawBoard(pr.finalResult);
-    printf("Placing #1: score %d\n",pr.scoreDelta);
-
     Board lastBoard;
     GameState gs(&pq);
     while (1){
@@ -843,9 +814,7 @@ int main(){
             break;
         }
         printf("Next piece:\n");
-        drawPieceQueue(pq,gs.getCurrentStepNum(),5);
-        //drawPiece(pq.getPiece(gs.getCurrentStepNum()));
-
+        drawPieceQueue(pq,gs.getCurrentStepNum(),SEARCH_DEPTH);
 
 
         printf("DFS calculating...\n");
