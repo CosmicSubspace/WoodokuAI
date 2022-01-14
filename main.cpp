@@ -18,10 +18,19 @@
 // Doesn't impace performance too much I think.
 #define MAX_GAME_STEPS 10000
 
-// Should probably leave this alone...
+// A lot of code assumes 9x9 board size implicitly.
+// You should probably leave this alone.
 #define BOARD_SIZE 9
 
+// Use space-inefficient but APU-minimized version of Piece class.
+// May increase performance if APU bound
+// But may do the opposite if memory bound.
+// Results in ~5% perforance DECREASE on Pinephone (ARM Allwinner A64)
+//#define USE_MEMORY_HEAVY_PIECE_CLASS
 
+// Use constant seed. Useful for performance measurement.
+// Use 0 to disable.
+#define CONSTANT_SEED 0
 
 struct Uint8x2{
     uint8_t x;
@@ -29,13 +38,45 @@ struct Uint8x2{
 };
 typedef struct Uint8x2 Vec2u8;
 
+
 class Piece{
+#ifdef USE_MEMORY_HEAVY_PIECE_CLASS
+private:
+    int numBlocksCache;
+    Vec2u8 blockCache[5];
+    Vec2u8 boundingBoxCache;
+public:
+    Piece(){
+        numBlocksCache=0;
+        boundingBoxCache.x=0;
+        boundingBoxCache.y=0;
+    }
+
+    int numBlocks(){
+        return numBlocksCache;
+    }
+    Vec2u8 getBlock(int idx){
+        return blockCache[idx];
+    }
+    Vec2u8 calculateBoundingBox(){
+        return boundingBoxCache;
+    }
+    void addBlock(int x, int y){
+        blockCache[numBlocksCache].x=x;
+        blockCache[numBlocksCache].y=y;
+        numBlocksCache++;
+        if (x>boundingBoxCache.x) boundingBoxCache.x=x;
+        if (y>boundingBoxCache.y) boundingBoxCache.y=y;
+    }
+#endif
+#ifndef USE_MEMORY_HEAVY_PIECE_CLASS
 private:
     uint32_t data;
 public:
     Piece(){
         data=0xFFFFFFFF;
     }
+
     int numBlocks(){
         uint32_t p=data;
         int n=0;
@@ -86,6 +127,7 @@ public:
         data=p;
         //do nothing if error - maybe handle errors or smth
     }
+#endif
     void debug_print(){
         printf("Piece: ");
         for (int i=0;i<numBlocks();i++){
@@ -796,8 +838,8 @@ int main(){
     tmp.addBlock(1,1);
     pieces[pieceN++]=tmp;
 
-
-    srand(time(nullptr));
+    if (CONSTANT_SEED) srand(CONSTANT_SEED);
+    else srand(time(nullptr));
 
 
     PieceQueue pq;
@@ -811,6 +853,9 @@ int main(){
     while (1){
         printf("\n\n\n");
         if (gs.getCurrentStepNum() > MAX_GAME_STEPS-10){
+            ansiColorSet(RED);
+            printf("Maximum game length reached!\n");
+            ansiColorSet(NONE);
             break;
         }
         printf("Next piece:\n");
@@ -823,7 +868,9 @@ int main(){
         Placement placement;
         if (!dfsr.valid){
             //No placement! Dead probs.
+            ansiColorSet(RED);
             printf("No placement possible!\n");
+            ansiColorSet(NONE);
             break;
         }
         printf("DFS max: %d\n",dfsr.score);
@@ -843,6 +890,8 @@ int main(){
         //printf("Enter to coninue...\n");
         //waitForEnter();
     }
+
+    printf("Ending game.\n");
 
     return 0;
 }
