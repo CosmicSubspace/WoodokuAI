@@ -5,6 +5,7 @@
 #include "assert.h"
 #include "limits.h"
 
+
 #include <iostream>
 
 struct Block{
@@ -331,6 +332,9 @@ public:
     Piece getCurrentPiece(){
         return pq->getPiece(currentPieceIndex);
     }
+    int getCurrentStepNum(){
+        return currentPieceIndex;
+    }
     Board getBoard(){
         return board;
     }
@@ -349,6 +353,18 @@ public:
     PlacementSequence getPsq(){
         return psq;
     }
+    bool applyPlacement(Placement pl){
+        PlacementResult pr=doPlacement(getBoard(),pl);
+        if (pr.success){
+            setBoard(pr.finalResult);
+            addScore(pr.scoreDelta);
+            addPlacement(pl);
+            incrementPieceQueue();
+            return true;
+        }else{
+            return false;
+        }
+    }
 };
 
 GameState search(GameState initialState,int depth){
@@ -365,74 +381,69 @@ GameState search(GameState initialState,int depth){
             pl.piece=currentPiece;
             pl.x=x;
             pl.y=y;
-            PlacementResult pr=doPlacement(initialState.getBoard(),pl);
-            if (pr.success){
-                //currentPiece.debug_print();
-                //printf("    DBG: Placement success %d %d\n",x,y);
-                //drawBoard(pr.result);
 
-                GameState inState=initialState;
-                inState.setBoard(pr.finalResult);
-                inState.addScore(pr.scoreDelta);
-                inState.addPlacement(pl);
-                inState.incrementPieceQueue();
+            GameState inState=initialState;
+
+            bool plres=inState.applyPlacement(pl);
+            if (plres){
                 GameState outState=search(inState,depth-1);
 
                 if (outState.getScore()>maxScore){
                     maxScore=outState.getScore();
                     optimalState=outState;
                 }
-            }else{
-                //currentPiece.debug_print();
-                //printf("    DBG: Placement fail %d %d\n",x,y);
             }
         }
     }
     return optimalState;
 }
 
-
+/*
+ * TODO
+ * piece auto-generate
+ * PieceQueue auto-generate
+ * Monte-carlo searching
+ */
 int main(){
-    Piece t1,r1,o1,x1,i1;
+    Piece tmp;
+    Piece pieces[MAX_GAME_STEPS];
+    int pieceN=0;
 
-
-    t1.addBlock(0,0);
-    t1.addBlock(1,0);
-    t1.addBlock(2,0);
-    t1.addBlock(1,1);
-
-    r1.addBlock(0,0);
-    r1.addBlock(1,0);
-    r1.addBlock(0,1);
-
-    x1.addBlock(0,1);
-    x1.addBlock(1,1);
-    x1.addBlock(1,0);
-    x1.addBlock(1,2);
-    x1.addBlock(2,1);
-
-    i1.addBlock(0,1);
-    i1.addBlock(0,0);
-    i1.addBlock(0,3);
-    i1.addBlock(0,2);
-
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(1,1);
+    pieces[pieceN++]=tmp;
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    pieces[pieceN++]=tmp;
+    tmp=Piece();
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(1,0);
+    tmp.addBlock(1,2);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+    tmp=Piece();
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,3);
+    tmp.addBlock(0,2);
+    pieces[pieceN++]=tmp;
 
     PieceQueue pq;
-    pq.addPiece(t1);
-    pq.addPiece(t1);
-    pq.addPiece(i1);
-    pq.addPiece(x1);
-    pq.addPiece(r1);
-    pq.addPiece(r1);
-
-    for(int i=0;i<5;i++){
-        pq.getPiece(i).debug_print();
+    for(int i=0;i<MAX_GAME_STEPS;i++){
+        pq.addPiece(pieces[rand()%pieceN]);
     }
 
 
 
+
     Placement pl;
-    pl.piece=x1;
+    pl.piece=pieces[0];
     pl.x=2;
     pl.y=2;
 
@@ -453,27 +464,27 @@ int main(){
     drawBoard(pr.finalResult);
     printf("Placing #1: score %d\n",pr.scoreDelta);
 
-    printf("DFS start...\n");
-    GameState igs(&pq);
-    GameState fgs=search(igs,5);
-    printf("DFS max: %d\n",fgs.getScore());
-    drawBoard(fgs.getBoard());
-
-    //Replay
+    Board lastBoard;
+    GameState gs(&pq);
     while (1){
-        printf("\n\n\nBegin replay:\n");
-        PlacementSequence rp_psq=fgs.getPsq();
-        Board rp_b=Board();
-        Board lastBoard;
-        for(int i=0;i<rp_psq.getLength();i++){
-            PlacementResult pr=doPlacement(rp_b,rp_psq.get(i));
-            printf("\n\nStep %d \n",i);
-            printf("Score delta: %d\n",pr.scoreDelta);
-            rp_b=pr.finalResult;
-            drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
-            lastBoard=pr.finalResult;
-            waitForEnter();
+        if (gs.getCurrentStepNum() > MAX_GAME_STEPS-10){
+            break;
         }
+
+        printf("DFS start...\n");
+        GameState optimal_gamestate=search(gs,4);
+        printf("DFS max: %d\n",optimal_gamestate.getScore());
+        PlacementResult pr;
+        Placement placement;
+        placement=optimal_gamestate.getPsq().get(gs.getCurrentStepNum());
+        pr=doPlacement(gs.getBoard(),placement);
+        printf("\n\nStep %d \n",gs.getCurrentStepNum());
+        printf("Score delta: %d\n",pr.scoreDelta);
+        drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
+
+        gs.applyPlacement(placement);
+        lastBoard=pr.finalResult;
     }
+
     return 0;
 }
