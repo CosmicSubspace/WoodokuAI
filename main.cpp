@@ -37,7 +37,7 @@
 
 #define INVISBLE_PIECE_MONTE_CARLO_ITER 10
 
-#define PREVIEW_PIECES 5
+#define PREVIEW_PIECES 6
 
 
 uint64_t timeSinceEpochMillisec() {
@@ -908,13 +908,15 @@ int main(){
             }
         }
 
-
+        // Mimics the game
         if (!pq.isVisible(gs.getCurrentStepNum())) {
             pq.addPiece(pcgn.generate());
             pq.addPiece(pcgn.generate());
             pq.addPiece(pcgn.generate());
         }
-        //while(!pq.isVisible(gs.getCurrentStepNum()+0)) pq.addPiece(pcgn.generate());
+
+        // Constant forward queue
+        //while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pcgn.generate());
 
         pq.rebase(gs.getCurrentStepNum());
 
