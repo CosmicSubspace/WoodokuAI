@@ -1,0 +1,56 @@
+#pragma once
+
+#include <cstdint>
+
+#include "piece.h"
+
+#define BOARD_SIZE 9
+
+struct Placement{
+    Piece piece;
+    uint8_t x;
+    uint8_t y;
+};
+typedef struct Placement Placement;
+
+
+
+class Board{
+private:
+    uint32_t bitfield[3];
+    int coord2idx(int x, int y);
+public:
+    Board();
+    bool read(int x, int y);
+    void write(int x, int y,bool value);
+};
+
+
+
+struct PlacementResult{
+    bool success;
+    Board preClear;
+    Board finalResult;
+    int scoreDelta;
+};
+typedef struct PlacementResult PlacementResult;
+
+PlacementResult doPlacement(Board b,Placement pl);
+
+
+class GameState{
+private:
+    int32_t score;
+    Board board;
+    PieceQueue *pq;
+    uint32_t currentPieceIndex;
+public:
+    GameState(PieceQueue *pieceQueue);
+    void incrementPieceQueue();
+    Piece getCurrentPiece();
+    bool currentPieceVisible();
+    uint32_t getCurrentStepNum();
+    Board getBoard();
+    int32_t getScore();
+    bool applyPlacement(Placement pl);
+};

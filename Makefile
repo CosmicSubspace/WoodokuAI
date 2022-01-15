@@ -1,11 +1,10 @@
 CXX=g++
-CPPFLAGS=-I.
 CFLAGS=-O3
 
 all: woodokuAI
 
-woodokuAI: main.o
-	$(CXX) -o woodokuAI main.o
+woodokuAI: main.o piece.o game.o printutil.h
+	$(CXX) -o woodokuAI main.o piece.o game.o
 
 %.o: %.cpp
 	$(CXX) -c $< -o $@ $(CFLAGS)
