@@ -3,6 +3,12 @@
 int Board::coord2idx(int x, int y){
     return x+y*BOARD_SIZE;
 }
+Vec2u8 Board::idx2coord(int idx){
+    Vec2u8 res;
+    res.x=idx%BOARD_SIZE;
+    res.y=idx/BOARD_SIZE;
+    return res;
+}
 Board::Board(){
     bitfield[0]=0;
     bitfield[1]=0;
@@ -20,6 +26,56 @@ void Board::write(int x, int y,bool value){
     int bitnum=idx%32;
     if (value) bitfield[varnum] |= (1<<bitnum);
     else bitfield[varnum] &= ~(1<<bitnum);
+}
+bool Board::isEmpty(){
+    return (bitfield[0] | bitfield[1] |  bitfield[2])==0;
+}
+Vec2u8 Board::getFirstFilledCell(){
+    int idx=0;
+    uint32_t bitselect=1;
+    for(int i=0;i<3;i++){
+        if (bitfield[i] !=0){ //there's a bit here
+            while (1){
+                if ((bitfield[i])&bitselect){
+                    return idx2coord(idx);
+                }
+                bitselect<<=1;
+                idx++;
+            }
+        }
+        idx+=32;
+    }
+    return Vec2u8();
+}
+Board Board::bitwiseAND(Board other){
+    Board res;
+    for (int i=0;i<3;i++){
+        res.bitfield[i]=bitfield[i] & other.bitfield[i];
+    }
+    return res;
+}
+Board Board::bitwiseOR(Board other){
+    Board res;
+    for (int i=0;i<3;i++){
+        res.bitfield[i]=bitfield[i] | other.bitfield[i];
+    }
+    return res;
+}
+Board Board::bitwiseNOT(){
+    Board res;
+    for (int i=0;i<3;i++){
+        res.bitfield[i]= ~bitfield[i];
+    }
+    return res;
+}
+int Board::countCells(){
+    int res=0;
+    for (int i=0;i<3;i++){
+        for (int b=0;b<32;b++){
+            if (bitfield[i] & (1<<b)) res++;
+        }
+    }
+    return res;
 }
 
 PlacementResult doPlacement(Board b,Placement pl){
@@ -117,14 +173,12 @@ Board GameState::getBoard(){
 int32_t GameState::getScore(){
     return score;
 }
-bool GameState::applyPlacement(Placement pl){
+PlacementResult GameState::applyPlacement(Placement pl){
     PlacementResult pr=doPlacement(getBoard(),pl);
     if (pr.success){
         board=pr.finalResult;
         score+=pr.scoreDelta;
         incrementPieceQueue();
-        return true;
-    }else{
-        return false;
     }
+    return pr;
 }

@@ -40,29 +40,112 @@
 
 #define INVISBLE_PIECE_MONTE_CARLO_ITER 10
 
-#define PREVIEW_PIECES 6
+#define PREVIEW_PIECES 5
+
+// Randomly prune branches off when doing
+// random selection on invisible pieces
+// 0 - disable
+// 100 - prune probability 1/(iter*100/100)
+// Makes the AI super dumb, I recommend keeping it at 0.
+#define MONTE_CARLO_PRUNING_RATIO 0
 
 
 uint64_t timeSinceEpochMillisec() {
   using namespace std::chrono;
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
+Board floodFillBoard(Board b, Vec2u8 start){
+    Board boundary;
+    Board fillResult;
+    boundary.write(start.x,start.y,true);
+    while (!boundary.isEmpty()){
+        Vec2u8 target=boundary.getFirstFilledCell();
+        if (b.read(target.x,target.y)){
+            // is filled.
+            fillResult.write(target.x,target.y,true);
 
+            Vec2u8 candidate;
+            for(int i=0;i<4;i++){
+                if (i==0){ //+X
+                    if ((target.x+1)<BOARD_SIZE){
+                        candidate.x=target.x+1;
+                        candidate.y=target.y;
+                    }else continue;
+                }
+                if (i==1){ //+Y
+                    if ((target.y+1)<BOARD_SIZE){
+                        candidate.y=target.y+1;
+                        candidate.x=target.x;
+                    }else continue;
+                }
+                if (i==2){ //-X
+                    if ((target.x)>0){
+                        candidate.x=target.x-1;
+                        candidate.y=target.y;
+                    }else continue;
+                }
+                if (i==3){ //-Y
+                    if ((target.y)>0){
+                        candidate.y=target.y-1;
+                        candidate.x=target.x;
+                    }else continue;
+                }
+
+                if (fillResult.read(candidate.x,candidate.y)) continue;
+                if (boundary.read(candidate.x,candidate.y)) continue;
+
+                boundary.write(candidate.x,candidate.y,true);
+
+            }
+        }
+        boundary.write(target.x,target.y,false);
+    }
+    return fillResult;
+}
+
+int calculateIslandness(Board b){
+    int n=0;
+    while (!b.isEmpty()){
+        Vec2u8 start=b.getFirstFilledCell();
+        Board island=floodFillBoard(b,start);
+
+        int cellcount=island.countCells();
+        if (cellcount<6) n+=10*(6-cellcount);
+        else if (cellcount<10) n+=2;
+        //remove this island
+        b=b.bitwiseAND(island.bitwiseNOT());
+    }
+    return n;
+}
+
+int calculateBoardFitness(Board b){
+    Board negboard=b.bitwiseNOT();
+    int islandnessP=calculateIslandness(b);
+    int islandnessN=calculateIslandness(negboard);
+    int emptycells=negboard.countCells();
+    return -(islandnessP+islandnessN*3)+emptycells*4;
+}
 
 struct DFSResult{
     Placement bestPlacement;
-    int32_t score;
+    int32_t compositeScore;
     bool valid;
 };
 typedef struct DFSResult DFSResult;
 
-DFSResult search(GameState initialState,int depth,int targetDepth){
+int32_t calculateCompositeScore(int sd,int bf){
+    return sd*10+bf*5;
+    //return bf*10;
+    //return sd*10;
+}
+
+DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseScore){
 
     DFSResult nullResult;
-    nullResult.score=-100;
+    nullResult.compositeScore=-100000;
     nullResult.valid=false;
 
-    if (depth>=targetDepth) return nullResult;
+    assert (depth<targetDepth);
 
     DFSResult res;
     res.valid=false;
@@ -76,7 +159,7 @@ DFSResult search(GameState initialState,int depth,int targetDepth){
     int piece_count=1;
     if (!piece_visible) piece_count=INVISBLE_PIECE_MONTE_CARLO_ITER;
 
-    int32_t score_totals=0;
+    int32_t cscore_totals=0;
     for (int pidx=0;pidx<piece_count;pidx++){
         if (!piece_visible) {
             //printf("Invidible piece!\n");
@@ -89,6 +172,16 @@ DFSResult search(GameState initialState,int depth,int targetDepth){
         bbox=currentPiece.calculateBoundingBox();
         for (int x=0;x<(9-bbox.x);x++){
             for (int y=0;y<(9-bbox.y);y++){
+
+                if (MONTE_CARLO_PRUNING_RATIO && (piece_count>1)){
+                    int r=rand();
+                    if ((r%1327)*piece_count<1327){
+                        //do the loop
+                    }else{
+                        //maybe skip the loop?
+                        if (r%100<MONTE_CARLO_PRUNING_RATIO) continue;
+                    }
+                }
                 Placement pl;
                 pl.piece=currentPiece;
                 pl.x=x;
@@ -96,23 +189,29 @@ DFSResult search(GameState initialState,int depth,int targetDepth){
 
                 GameState inState=initialState;
 
-                bool plres=inState.applyPlacement(pl);
-                if (plres){
+                PlacementResult pr=inState.applyPlacement(pl);
+                if (pr.success){
                     //printf("Depth %d X %d Y %d\n",depth,x,y);
                     // DFS result until here
                     DFSResult dr;
-                    dr.score=inState.getScore();
+                    dr.compositeScore=calculateCompositeScore(
+                        inState.getScore()-baseScore,
+                        calculateBoardFitness(pr.finalResult)
+                    );
                     dr.bestPlacement=pl;
                     dr.valid=true;
 
-                    // Try recursing, if successful, copy result
-                    DFSResult dr_recursed=search(inState,depth+1,targetDepth);
-                    if (dr_recursed.valid){
-                        dr.score=dr_recursed.score;
+                    // Try recursing
+                    if (depth+1<targetDepth){
+                        DFSResult dr_recursed=search(inState,depth+1,targetDepth,baseScore);
+
+                        // Take the final score
+                        dr.compositeScore=dr_recursed.compositeScore;
                     }
 
                     // Copy result into optimal if score greatest
-                    if (dr.score>optimalResult.score){
+                    if (dr.compositeScore>optimalResult.compositeScore){
+                        //printf("Optimmal found %d X %d Y %d\n",depth,x,y);
                         optimalResult=dr;
                     }
                 }
@@ -120,24 +219,58 @@ DFSResult search(GameState initialState,int depth,int targetDepth){
         }
 
         if (optimalResult.valid){
-            score_totals+=optimalResult.score;
+            cscore_totals+=optimalResult.compositeScore;
             res.valid=true; //vaild if at least one of the possibilities is valid.
             res.bestPlacement=optimalResult.bestPlacement;
         }else{
-            score_totals+=(-1000);
+            // No valid result - penalize
+            cscore_totals+=(-123);
         }
     }
 
-    res.score=score_totals/piece_count;
+    res.compositeScore=cscore_totals/piece_count;
     return res;
 }
 
 
 int main(){
 
-
     if (CONSTANT_SEED) srand(CONSTANT_SEED);
     else srand(time(nullptr));
+    /*
+    Board tb1,tb2;
+    for (int x=0;x<BOARD_SIZE;x++){
+        for (int y=0;y<BOARD_SIZE;y++){
+            if ((rand()%10)<7) tb1.write(x,y,true);
+            if ((rand()%10)<5) tb2.write(x,y,true);
+        }
+    }
+    printf("Orig1\n");
+    drawBoard(tb1);
+    Vec2u8 ffs;
+    ffs.x=1; ffs.y=1;
+    Board ff=floodFillBoard(tb1,ffs);
+    printf("FF'd\n");
+    drawBoard(ff);
+
+    printf("Orig1\n");
+    drawBoard(tb1);
+    printf("Orig2\n");
+    drawBoard(tb2);
+    printf("AND'd\n");
+    drawBoard(tb1.bitwiseAND(tb2));
+    printf("OR'd\n");
+    drawBoard(tb1.bitwiseOR(tb2));
+    printf("NOT'd\n");
+    drawBoard(tb1.bitwiseNOT());
+
+    printf("Orig1\n");
+    drawBoard(tb1);
+    printf("Islands:%d\n",numIslands(tb1));
+
+    return 0;*/
+
+
 
 
     PieceQueue pq;
@@ -164,7 +297,7 @@ int main(){
         }
 
         // Constant forward queue
-        //while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pcgn.generate());
+        //while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pgen->generate());
 
         pq.rebase(gs.getCurrentStepNum());
 
@@ -177,14 +310,14 @@ int main(){
         if (CONSTANT_SEARCH_DEPTH){
             dfsDepth=CONSTANT_SEARCH_DEPTH;
             printf("DFS calculating... constant depth %d\n",dfsDepth);
-            dfsr=search(gs,0,dfsDepth);
+            dfsr=search(gs,0,dfsDepth,gs.getScore());
         }else{
             dfsDepth=1;
             while (dfsDepth<MAX_SEARCH_DEPTH){
                 printf("\rDFS calculating... dynamic depth %d  ",dfsDepth);
                 fflush(stdout);
                 uint64_t startT=timeSinceEpochMillisec();
-                dfsr=search(gs,0,dfsDepth);
+                dfsr=search(gs,0,dfsDepth,gs.getScore());
                 uint64_t deltaT=timeSinceEpochMillisec()-startT;
                 if (deltaT>ADDITIONAL_DEPTH_THRESH) break;
                 dfsDepth++;
@@ -203,7 +336,7 @@ int main(){
             ansiColorSet(NONE);
             break;
         }
-        printf("DFS max: %d\n",dfsr.score);
+        printf("DFS max comp.score: %d\n",dfsr.compositeScore);
 
 
         placement=dfsr.bestPlacement;
