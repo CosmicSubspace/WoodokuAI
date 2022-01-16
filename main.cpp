@@ -156,9 +156,6 @@ DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseSc
 
     assert (depth<targetDepth);
 
-    DFSResult res;
-    res.valid=false;
-
 
     Piece currentPiece;
     PieceQueue *pq;
@@ -246,7 +243,6 @@ DFSResult searchHL(GameState gs, int depth){
         }
     }
 
-    DFSResult popular;
     int hits[INVISBLE_PIECE_MONTE_CARLO_ITER];
     bool duplicate[INVISBLE_PIECE_MONTE_CARLO_ITER];
     for(int i=0;i<INVISBLE_PIECE_MONTE_CARLO_ITER;i++){
@@ -303,7 +299,10 @@ DFSResult searchHL(GameState gs, int depth){
     }
 
     DFSResult res;
-    res=dfsrs[maxIdx];
+    if (maxIdx==-1){
+        // No results
+        res=dfsrs[0]; //Just return the first one...
+    }else res=dfsrs[maxIdx];
 
     return res;
 }
