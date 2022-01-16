@@ -14,6 +14,7 @@
 #include "piece.h"
 #include "printutil.h"
 #include "game.h"
+#include "woodoku_client.h"
 
 
 // Crucial constant, determines the DFS search depth
@@ -48,6 +49,9 @@
 // 100 - prune probability 1/(iter*100/100)
 // Makes the AI super dumb, I recommend keeping it at 0.
 #define MONTE_CARLO_PRUNING_RATIO 0
+
+// Connect to a game server.
+//#define SERVER_GAME
 
 
 uint64_t timeSinceEpochMillisec() {
@@ -270,15 +274,16 @@ int main(){
 
     return 0;*/
 
-
-
+#ifdef SERVER_GAME
+    WoodokuClient wc;
+#endif
 
     PieceQueue pq;
     PieceGenerator *pgen=getGlobalPG();
     Board lastBoard;
     GameState gs(&pq);
     while (1){
-
+#ifndef SERVER_GAME
         printf("\n\n\n");
         if (MAX_GAME_STEPS){
             if (gs.getCurrentStepNum() >= MAX_GAME_STEPS){
@@ -298,7 +303,34 @@ int main(){
 
         // Constant forward queue
         //while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pgen->generate());
+#endif
+#ifdef SERVER_GAME
+        ServerState ss;
+        while (!wc.getServerStateUpdate(&ss)){
+            // wait for server
+            printf("wait for server..\n");
+            usleep(100*1000);
+        }
 
+        Piece servPieces[3];
+        for (int x=0;x<5;x++){
+            for (int y=0;y<5;y++){
+                int idx=x+y*5;
+                if (ss.piece1[idx]) servPieces[0].addBlock(x,y);
+                if (ss.piece2[idx]) servPieces[1].addBlock(x,y);
+                if (ss.piece3[idx]) servPieces[2].addBlock(x,y);
+            }
+        }
+
+
+
+        for (int i=0;i<3;i++){
+            if (servPieces[i].numBlocks()>0){
+                pq.setPiece(gs.getCurrentStepNum()+i,
+                            servPieces[i]);
+            }
+        }
+#endif
         pq.rebase(gs.getCurrentStepNum());
 
 
@@ -348,8 +380,17 @@ int main(){
         drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
 
         lastBoard=pr.finalResult;
-
-
+#ifdef SERVER_GAME
+        ClientMove cm;
+        for(int x=0;x<5;x++){
+            for (int y=0;y<5;y++){
+                cm.shape[x+y*5]=placement.piece.hasBlockAt(x,y);
+            }
+        }
+        cm.x=placement.x;
+        cm.y=placement.y;
+        wc.commitMove(&cm);
+#endif
         //printf("Enter to coninue...\n");
         //waitForEnter();
     }

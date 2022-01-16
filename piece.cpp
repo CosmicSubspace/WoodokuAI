@@ -74,7 +74,9 @@ bool Piece::hasBlockAt(int x, int y){
     }
     return false;
 }
-
+bool Piece::compare(Piece other){
+    return data==other.data;
+}
 
 PieceGenerator::PieceGenerator(Piece *piecePool, int piecePoolSize){
     pp=piecePool;
@@ -121,6 +123,16 @@ bool PieceQueue::isVisible(uint32_t idx){
 }
 int PieceQueue::getQueueLength(){
     return queue_size;
+}
+void PieceQueue::setPiece(uint32_t idx, Piece p){
+    int diff=idx-baseIndex;
+    if (diff==queue_size) addPiece(p);
+    else{
+        assert (diff>=0);
+        assert (diff<queue_size);
+        pieces[diff]=p;
+    }
+
 }
 
 #define NUM_PIECES 64

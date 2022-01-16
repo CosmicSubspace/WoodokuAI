@@ -24,6 +24,8 @@ public:
 
     void debug_print();
     bool hasBlockAt(int x, int y);
+
+    bool compare(Piece other);
 };
 
 
@@ -50,6 +52,7 @@ public:
     void increment();
     void rebase(uint32_t newidx);
     void addPiece(Piece p);
+    void setPiece(uint32_t idx, Piece p);
     Piece getPiece(uint32_t idx);
     bool isVisible(uint32_t idx);
     int getQueueLength();
