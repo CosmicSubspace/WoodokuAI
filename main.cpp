@@ -26,7 +26,7 @@
 // The program will go for an additional DFS level
 // If the current DFS took less than ADDITIONAL_DEPTH_THRESH milliseconds.
 #define MAX_SEARCH_DEPTH 10
-#define ADDITIONAL_DEPTH_THRESH 200
+#define ADDITIONAL_DEPTH_THRESH 100
 
 // Maximum game length. 0 for unlimited.
 #define MAX_GAME_STEPS 0
@@ -39,7 +39,8 @@
 // Use 0 to disable.
 #define CONSTANT_SEED 0
 
-#define INVISBLE_PIECE_MONTE_CARLO_ITER 10
+#define MAX_RANDSEARCH_ITER 30
+
 
 #define PREVIEW_PIECES 5
 
@@ -48,7 +49,7 @@
 
 
 // Disable board-fitness heuristic
-#define DISABLE_BOARD_FITNESS_HEURISTIC
+//#define DISABLE_BOARD_FITNESS_HEURISTIC
 
 
 
@@ -127,7 +128,8 @@ int calculateBoardFitness(Board b){
     int islandnessP=calculateIslandness(b);
     int islandnessN=calculateIslandness(negboard);
     int emptycells=negboard.countCells();
-    return -(islandnessP+islandnessN*3)+emptycells*4;
+    //return -(islandnessP+islandnessN*3)+emptycells*4;
+    return emptycells;
 }
 #endif
 #ifdef DISABLE_BOARD_FITNESS_HEURISTIC
@@ -143,8 +145,8 @@ struct DFSResult{
 typedef struct DFSResult DFSResult;
 
 int32_t calculateCompositeScore(int sd,int bf){
-    return sd*10+bf*5;
-    //return bf*10;
+    //return sd*10+bf*5;
+    return bf*10;
     //return sd*10;
 }
 
@@ -219,10 +221,37 @@ DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseSc
     return optimalResult;
 }
 
-DFSResult searchHL(GameState gs, int depth){
-    DFSResult dfsrs[INVISBLE_PIECE_MONTE_CARLO_ITER];
-    bool doForesighting=false;
-    for(int mci=0;mci<INVISBLE_PIECE_MONTE_CARLO_ITER;mci++){
+struct SearchResult{
+    Placement optimalPlacement;
+    int searchDepth;
+    bool isValid;
+};
+typedef struct SearchResult SearchResult;
+
+SearchResult searchHL(GameState gs, int depth, uint64_t maxSearchTimeMillis){
+    uint64_t startT=timeSinceEpochMillisec();
+    //DFSResult dfsrs[MAX_RANDSEARCH_ITER];
+    bool hasInvisible=false;
+    int actualRandSearchN=0;
+    Piece nextPiece=gs.getPQ()->getPiece(gs.getCurrentStepNum());
+
+
+    for (int i=0;i<depth;i++){
+        if (!gs.getPQ()->isVisible(gs.getCurrentStepNum()+i)){
+            hasInvisible=true;
+        }}
+
+    Placement uniquePlacements[MAX_RANDSEARCH_ITER];
+    int numUniquePlacements=0;
+    int uniquePlacementCount[MAX_RANDSEARCH_ITER];
+    int maxCount=0;
+    int maxIdx=-1;
+    int invalids=0;
+
+    int mci=0;
+    while (1){
+        printf("\rSearching... depth %d, randiter %d   ",depth,mci);
+        fflush(stdout);
         PieceQueue tmpPQ=*(gs.getPQ());
 
         for (int i=0;i<depth;i++){
@@ -230,65 +259,67 @@ DFSResult searchHL(GameState gs, int depth){
                 tmpPQ.setPiece(
                     gs.getCurrentStepNum()+i,
                     getGlobalPG()->generate());
-                doForesighting=true;
             }
         }
 
-        dfsrs[mci]=search(gs,0,depth,gs.getScore(),&tmpPQ);
+        DFSResult dfsr=search(gs,0,depth,gs.getScore(),&tmpPQ);
+        //dfsrs[mci]=dfsr;
+        actualRandSearchN++;
 
-        //All pieces visible - just return now
-        if (!doForesighting) {
-            printf("  Determined future - early return\n");
-            return dfsrs[mci];
-        }
-    }
-
-    int hits[INVISBLE_PIECE_MONTE_CARLO_ITER];
-    bool duplicate[INVISBLE_PIECE_MONTE_CARLO_ITER];
-    for(int i=0;i<INVISBLE_PIECE_MONTE_CARLO_ITER;i++){
-        duplicate[i]=false;
-    }
-    int maxhits=0;
-    int maxIdx=-1;
-    int invalids=0;
-    Piece nextPiece=gs.getPQ()->getPiece(gs.getCurrentStepNum());
-    for(int i=0;i<INVISBLE_PIECE_MONTE_CARLO_ITER;i++){
-        hits[i]=0;
-        if (duplicate[i]) continue;
-
-        if (dfsrs[i].valid){
+        if (dfsr.valid){
             // sanity
-            Piece placementPiece=dfsrs[i].bestPlacement.piece;
+            Piece placementPiece=dfsr.bestPlacement.piece;
             assert (placementPiece.equal(nextPiece));
-        }else{
-            invalids++;
-            continue;
-        }
 
-        for(int j=0;j<INVISBLE_PIECE_MONTE_CARLO_ITER;j++){
-            if (!dfsrs[j].valid){
-                continue;
-            }
-            Placement a=dfsrs[i].bestPlacement;
-            Placement b=dfsrs[j].bestPlacement;
-            if ((a.x==b.x) && (a.y==b.y)){
-                if (i!=j) duplicate[j]=true;
-                hits[i]++;
-                if (hits[i]>maxhits) {
-                    maxhits=hits[i];
-                    maxIdx=i;
+            int duplicateOf=-1;
+            Placement p1=dfsr.bestPlacement;
+            for(int i=0;i<numUniquePlacements;i++){
+                Placement p2=uniquePlacements[i];
+                if ((p1.x==p2.x) && (p1.y==p2.y)){
+                    duplicateOf=i;
+                    break;
                 }
             }
+            if (duplicateOf==-1){
+                uniquePlacements[numUniquePlacements]=p1;
+                uniquePlacementCount[numUniquePlacements]=1;
+                duplicateOf=numUniquePlacements;
+                numUniquePlacements++;
+            }else{
+                uniquePlacementCount[duplicateOf]++;
+            }
+            if (uniquePlacementCount[duplicateOf]>maxCount){
+                maxCount=uniquePlacementCount[duplicateOf];
+                maxIdx=duplicateOf;
+            }
+        }else{
+            invalids++;
         }
+        //All pieces visible - just return now
+        if (!hasInvisible) {
+            printf("\nDetermined future - breaking!");
+            break;
+        }
+        if ((timeSinceEpochMillisec()-startT)>maxSearchTimeMillis){
+            printf("\nTimeout");
+            break;
+        }
+        if (mci==MAX_RANDSEARCH_ITER){
+            printf("\nMax randiter reached");
+            break;
+        }
+
+        mci++;
     }
 
 
-    for(int i=0;i<INVISBLE_PIECE_MONTE_CARLO_ITER;i++){
-        if (!dfsrs[i].valid) continue;
-        if (duplicate[i]) continue;
-        printf("  %d X %d Y %d (%d hits)", i,dfsrs[i].bestPlacement.x,
-               dfsrs[i].bestPlacement.y,hits[i]);
-        if (hits[i]==maxhits) printf(" *");
+    printf("\n");
+    for(int i=0;i<numUniquePlacements;i++){
+        printf("  X %d Y %d (%d hits)",
+               uniquePlacements[i].x,
+               uniquePlacements[i].y,
+                uniquePlacementCount[i]);
+        if (uniquePlacementCount[i]==maxCount) printf(" *");
         if (i==maxIdx) printf(" <<");
         printf("\n");
     }
@@ -298,13 +329,19 @@ DFSResult searchHL(GameState gs, int depth){
         ansiColorSet(NONE);
     }
 
-    DFSResult res;
+    SearchResult sr;
+    sr.searchDepth=depth;
     if (maxIdx==-1){
         // No results
-        res=dfsrs[0]; //Just return the first one...
-    }else res=dfsrs[maxIdx];
+        sr.isValid=false;
 
-    return res;
+    }else {
+        sr.isValid=true;
+        sr.optimalPlacement=uniquePlacements[maxIdx];
+    }
+
+
+    return sr;
 }
 
 int main(){
@@ -408,19 +445,19 @@ int main(){
 
 
 
-        DFSResult dfsr;
+        SearchResult sr;
         int dfsDepth;
         if (CONSTANT_SEARCH_DEPTH){
             dfsDepth=CONSTANT_SEARCH_DEPTH;
-            printf("DFS calculating... constant depth %d\n",dfsDepth);
-            dfsr=searchHL(gs,dfsDepth);
+            //printf("DFS calculating... constant depth %d\n",dfsDepth);
+            sr=searchHL(gs,dfsDepth,5000);
         }else{
             dfsDepth=1;
             while (dfsDepth<MAX_SEARCH_DEPTH){
-                printf("DFS calculating... dynamic depth %d  \n",dfsDepth);
-                fflush(stdout);
+                //printf("DFS calculating... dynamic depth %d  \n",dfsDepth);
+
                 uint64_t startT=timeSinceEpochMillisec();
-                dfsr=searchHL(gs,dfsDepth);
+                sr=searchHL(gs,dfsDepth,5000);
                 uint64_t deltaT=timeSinceEpochMillisec()-startT;
                 if (deltaT>ADDITIONAL_DEPTH_THRESH) break;
                 dfsDepth++;
@@ -432,17 +469,16 @@ int main(){
 
         PlacementResult pr;
         Placement placement;
-        if (!dfsr.valid){
+        if (!sr.isValid){
             //No placement! Dead probs.
             ansiColorSet(RED);
             printf("No placement possible!\n");
             ansiColorSet(NONE);
             break;
         }
-        printf("DFS max comp.score: %d\n",dfsr.compositeScore);
 
 
-        placement=dfsr.bestPlacement;
+        placement=sr.optimalPlacement;
         pr=doPlacement(gs.getBoard(),placement);
 
         gs.applyPlacement(placement);
