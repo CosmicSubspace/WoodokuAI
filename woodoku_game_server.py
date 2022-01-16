@@ -108,6 +108,11 @@ for p in pieces:
 class Board:
     def __init__(self):
         self._board=[False]*81
+    def clone(self):
+        res=Board()
+        for i in range(81):
+            res._board[i]=self._board[i]
+        return res
     @staticmethod
     def _coord2idx(x,y):
         return x+y*9
@@ -163,10 +168,18 @@ class GameThread(threading.Thread):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self._board=Board()
+        self._prev_board=Board()
+        self._preclear_board=Board()
         self._nexts=[]
     @property
     def board(self):
         return self._board
+    @property
+    def prev_board(self):
+        return self._prev_board
+    @property
+    def preclear_board(self):
+        return self._preclear_board
     @property
     def nexts(self):
         return self._nexts
@@ -192,6 +205,7 @@ class GameThread(threading.Thread):
         self._board=Board()
         self._nexts=[]
         print("Game start")
+        lastTickTime=time.time()
         while True:
             print("\n\n")
             if len(self._nexts)==0:
@@ -218,6 +232,10 @@ class GameThread(threading.Thread):
                     break
             print("Recv:",clientdata)
 
+            while time.time()<lastTickTime+1:
+                time.sleep(0.1)
+                print("Sleep cuz its too fast")
+
             clientpiece,px,py=parse_clientmove(clientdata)
             piece=None
             for p in pieces:
@@ -227,7 +245,7 @@ class GameThread(threading.Thread):
             self._nexts.remove(piece)
 
             print(piece,px,py)
-
+            self._prev_board=self._board.clone()
             for lx,ly in piece.coords():
                 x=lx+px
                 y=ly+py
@@ -248,7 +266,7 @@ class GameThread(threading.Thread):
                         clear_x[x]=False
                         clear_y[y]=False
                         clear_c[c]=False
-
+            self._preclear_board=self._board.clone()
             print(clear_x)
             print(clear_y)
             print(clear_c)
@@ -306,7 +324,7 @@ class Color:
         res=cls()
         res._r=rf
         res._g=gf
-        res._bf=bf
+        res._b=bf
         return res
 
     def to_hex6(self):
@@ -323,10 +341,10 @@ class CellGrid(tkinter.Frame):
         self._colorcache=[]
         self._xN=xsize
         self._yN=ysize
-
+        self.configure(background="#101010")
         for y in range(ysize):
             for x in range(xsize):
-                cell=tkinter.Frame(self,width=16,height=16)
+                cell=tkinter.Frame(self,width=32,height=32)
                 cell.grid(row=y,column=x,
                           padx=2,pady=2,
                           sticky="NEWS")
@@ -356,7 +374,7 @@ gt.start()
 
 
 tkroot=tkinter.Tk()
-tkroot.configure(background="#000020")
+tkroot.configure(background="#000000")
 
 next_display=[]
 for i in range(3):
@@ -368,11 +386,35 @@ board_display=CellGrid(tkroot,9,9)
 board_display.grid(column=1,columnspan=3,row=2)
 
 def peroidic():
+    board_current=gt.board
+    board_prev=gt.prev_board
+    board_preclear=gt.preclear_board
     for x in range(9):
         for y in range(9):
-            clr=Color.from_RGBf(0.1,0.1,0.1)
-            if gt.board.read(x,y):
-                clr=Color.from_RGBf(0.9,0.9,0.9)
+            clr=None
+
+            current=board_current.read(x,y)
+            prev=board_prev.read(x,y)
+            preclear=board_preclear.read(x,y)
+            state=(prev,preclear,current)
+            if state==(True,True,True):
+                # Untouched on
+                clr=Color.from_RGBf(0.6,0.6,0.6)
+            elif state==(True,True,False):
+                # Cleared
+                clr=Color.from_RGBf(0.8,0.5,0.5)
+            elif state==(False,True,True):
+                # Newly placed
+                clr=Color.from_RGBf(1.0,1.0,1.0)
+            elif state==(False,True,False):
+                # Placed then cleared
+                clr=Color.from_RGBf(1.0,0.9,0.9)
+            elif state==(False,False,False):
+                # Untouched off
+                clr=Color.from_RGBf(0.2,0.2,0.2)
+            else:
+                #Error? threading shenanigans
+                clr=Color.from_RGBf(1.0,0,0)
             board_display.set_color(x,y,clr)
     for i in range(3):
         for x in range(5):
@@ -380,7 +422,7 @@ def peroidic():
                 clr=Color.from_RGBf(0.1,0.1,0.1)
                 if i<len(gt.nexts):
                     if gt.nexts[i].read(x,y):
-                        clr=Color.from_RGBf(0.9,0.9,0.9)
+                        clr=Color.from_RGBf(0.5,0.5,1.0)
                 next_display[i].set_color(x,y,clr)
 
     tkroot.after(100,peroidic)
