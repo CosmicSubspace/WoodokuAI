@@ -25,7 +25,7 @@ public:
     void debug_print();
     bool hasBlockAt(int x, int y);
 
-    bool compare(Piece other);
+    bool equal(Piece other);
 };
 
 

@@ -182,3 +182,6 @@ PlacementResult GameState::applyPlacement(Placement pl){
     }
     return pr;
 }
+PieceQueue* GameState::getPQ(){
+    return pq;
+}

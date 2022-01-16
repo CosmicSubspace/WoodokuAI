@@ -74,7 +74,7 @@ bool Piece::hasBlockAt(int x, int y){
     }
     return false;
 }
-bool Piece::compare(Piece other){
+bool Piece::equal(Piece other){
     return data==other.data;
 }
 

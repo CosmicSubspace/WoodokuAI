@@ -26,7 +26,7 @@
 // The program will go for an additional DFS level
 // If the current DFS took less than ADDITIONAL_DEPTH_THRESH milliseconds.
 #define MAX_SEARCH_DEPTH 10
-#define ADDITIONAL_DEPTH_THRESH 100
+#define ADDITIONAL_DEPTH_THRESH 200
 
 // Maximum game length. 0 for unlimited.
 #define MAX_GAME_STEPS 0
@@ -43,21 +43,21 @@
 
 #define PREVIEW_PIECES 5
 
-// Randomly prune branches off when doing
-// random selection on invisible pieces
-// 0 - disable
-// 100 - prune probability 1/(iter*100/100)
-// Makes the AI super dumb, I recommend keeping it at 0.
-#define MONTE_CARLO_PRUNING_RATIO 0
-
 // Connect to a game server.
 //#define SERVER_GAME
+
+
+// Disable board-fitness heuristic
+#define DISABLE_BOARD_FITNESS_HEURISTIC
+
 
 
 uint64_t timeSinceEpochMillisec() {
   using namespace std::chrono;
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
+
+#ifndef DISABLE_BOARD_FITNESS_HEURISTIC
 Board floodFillBoard(Board b, Vec2u8 start){
     Board boundary;
     Board fillResult;
@@ -129,7 +129,12 @@ int calculateBoardFitness(Board b){
     int emptycells=negboard.countCells();
     return -(islandnessP+islandnessN*3)+emptycells*4;
 }
-
+#endif
+#ifdef DISABLE_BOARD_FITNESS_HEURISTIC
+int calculateBoardFitness(Board b){
+    return 0;
+}
+#endif
 struct DFSResult{
     Placement bestPlacement;
     int32_t compositeScore;
@@ -143,7 +148,7 @@ int32_t calculateCompositeScore(int sd,int bf){
     //return sd*10;
 }
 
-DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseScore){
+DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseScore, PieceQueue *pqOverride){
 
     DFSResult nullResult;
     nullResult.compositeScore=-100000;
@@ -154,88 +159,154 @@ DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseSc
     DFSResult res;
     res.valid=false;
 
-    bool piece_visible=initialState.currentPieceVisible();
+
     Piece currentPiece;
-    if (piece_visible) currentPiece=initialState.getCurrentPiece();
+    PieceQueue *pq;
+    if (pqOverride != nullptr){
+        pq=pqOverride;
+    }else{
+        pq=initialState.getPQ();
+    }
+    assert (pq->isVisible(initialState.getCurrentStepNum()));
+    currentPiece=pq->getPiece(initialState.getCurrentStepNum());
     //printf("Depth %d\n",depth);
     //drawPiece(currentPiece);
 
-    int piece_count=1;
-    if (!piece_visible) piece_count=INVISBLE_PIECE_MONTE_CARLO_ITER;
 
-    int32_t cscore_totals=0;
-    for (int pidx=0;pidx<piece_count;pidx++){
-        if (!piece_visible) {
-            //printf("Invidible piece!\n");
-            currentPiece=getGlobalPG()->generate();
-        }
 
-        DFSResult optimalResult=nullResult;
-        //Prune loops a little with some simple bounding box calculation
-        Vec2u8 bbox;
-        bbox=currentPiece.calculateBoundingBox();
-        for (int x=0;x<(9-bbox.x);x++){
-            for (int y=0;y<(9-bbox.y);y++){
 
-                if (MONTE_CARLO_PRUNING_RATIO && (piece_count>1)){
-                    int r=rand();
-                    if ((r%1327)*piece_count<1327){
-                        //do the loop
-                    }else{
-                        //maybe skip the loop?
-                        if (r%100<MONTE_CARLO_PRUNING_RATIO) continue;
-                    }
+
+    DFSResult optimalResult=nullResult;
+    //Prune loops a little with some simple bounding box calculation
+    Vec2u8 bbox;
+    bbox=currentPiece.calculateBoundingBox();
+    for (int x=0;x<(9-bbox.x);x++){
+        for (int y=0;y<(9-bbox.y);y++){
+
+            Placement pl;
+            pl.piece=currentPiece;
+            pl.x=x;
+            pl.y=y;
+
+            GameState inState=initialState;
+
+            PlacementResult pr=inState.applyPlacement(pl);
+            if (pr.success){
+                //printf("Depth %d X %d Y %d\n",depth,x,y);
+                // DFS result until here
+                DFSResult dr;
+                dr.compositeScore=calculateCompositeScore(
+                    inState.getScore()-baseScore,
+                    calculateBoardFitness(pr.finalResult)
+                );
+                dr.bestPlacement=pl;
+                dr.valid=true;
+
+                // Try recursing
+                if (depth+1<targetDepth){
+                    DFSResult dr_recursed=search(inState,depth+1,targetDepth,baseScore, pqOverride);
+
+                    // Take the final score
+                    dr.compositeScore=dr_recursed.compositeScore;
                 }
-                Placement pl;
-                pl.piece=currentPiece;
-                pl.x=x;
-                pl.y=y;
 
-                GameState inState=initialState;
-
-                PlacementResult pr=inState.applyPlacement(pl);
-                if (pr.success){
-                    //printf("Depth %d X %d Y %d\n",depth,x,y);
-                    // DFS result until here
-                    DFSResult dr;
-                    dr.compositeScore=calculateCompositeScore(
-                        inState.getScore()-baseScore,
-                        calculateBoardFitness(pr.finalResult)
-                    );
-                    dr.bestPlacement=pl;
-                    dr.valid=true;
-
-                    // Try recursing
-                    if (depth+1<targetDepth){
-                        DFSResult dr_recursed=search(inState,depth+1,targetDepth,baseScore);
-
-                        // Take the final score
-                        dr.compositeScore=dr_recursed.compositeScore;
-                    }
-
-                    // Copy result into optimal if score greatest
-                    if (dr.compositeScore>optimalResult.compositeScore){
-                        //printf("Optimmal found %d X %d Y %d\n",depth,x,y);
-                        optimalResult=dr;
-                    }
+                // Copy result into optimal if score greatest
+                if (dr.compositeScore>optimalResult.compositeScore){
+                    //printf("Optimmal found %d X %d Y %d\n",depth,x,y);
+                    optimalResult=dr;
                 }
             }
         }
+    }
 
-        if (optimalResult.valid){
-            cscore_totals+=optimalResult.compositeScore;
-            res.valid=true; //vaild if at least one of the possibilities is valid.
-            res.bestPlacement=optimalResult.bestPlacement;
-        }else{
-            // No valid result - penalize
-            cscore_totals+=(-123);
+    return optimalResult;
+}
+
+DFSResult searchHL(GameState gs, int depth){
+    DFSResult dfsrs[INVISBLE_PIECE_MONTE_CARLO_ITER];
+    bool doForesighting=false;
+    for(int mci=0;mci<INVISBLE_PIECE_MONTE_CARLO_ITER;mci++){
+        PieceQueue tmpPQ=*(gs.getPQ());
+
+        for (int i=0;i<depth;i++){
+            if (!tmpPQ.isVisible(gs.getCurrentStepNum()+i)){
+                tmpPQ.setPiece(
+                    gs.getCurrentStepNum()+i,
+                    getGlobalPG()->generate());
+                doForesighting=true;
+            }
+        }
+
+        dfsrs[mci]=search(gs,0,depth,gs.getScore(),&tmpPQ);
+
+        //All pieces visible - just return now
+        if (!doForesighting) {
+            printf("  Determined future - early return\n");
+            return dfsrs[mci];
         }
     }
 
-    res.compositeScore=cscore_totals/piece_count;
+    DFSResult popular;
+    int hits[INVISBLE_PIECE_MONTE_CARLO_ITER];
+    bool duplicate[INVISBLE_PIECE_MONTE_CARLO_ITER];
+    for(int i=0;i<INVISBLE_PIECE_MONTE_CARLO_ITER;i++){
+        duplicate[i]=false;
+    }
+    int maxhits=0;
+    int maxIdx=-1;
+    int invalids=0;
+    Piece nextPiece=gs.getPQ()->getPiece(gs.getCurrentStepNum());
+    for(int i=0;i<INVISBLE_PIECE_MONTE_CARLO_ITER;i++){
+        hits[i]=0;
+        if (duplicate[i]) continue;
+
+        if (dfsrs[i].valid){
+            // sanity
+            Piece placementPiece=dfsrs[i].bestPlacement.piece;
+            assert (placementPiece.equal(nextPiece));
+        }else{
+            invalids++;
+            continue;
+        }
+
+        for(int j=0;j<INVISBLE_PIECE_MONTE_CARLO_ITER;j++){
+            if (!dfsrs[j].valid){
+                continue;
+            }
+            Placement a=dfsrs[i].bestPlacement;
+            Placement b=dfsrs[j].bestPlacement;
+            if ((a.x==b.x) && (a.y==b.y)){
+                if (i!=j) duplicate[j]=true;
+                hits[i]++;
+                if (hits[i]>maxhits) {
+                    maxhits=hits[i];
+                    maxIdx=i;
+                }
+            }
+        }
+    }
+
+
+    for(int i=0;i<INVISBLE_PIECE_MONTE_CARLO_ITER;i++){
+        if (!dfsrs[i].valid) continue;
+        if (duplicate[i]) continue;
+        printf("  %d X %d Y %d (%d hits)", i,dfsrs[i].bestPlacement.x,
+               dfsrs[i].bestPlacement.y,hits[i]);
+        if (hits[i]==maxhits) printf(" *");
+        if (i==maxIdx) printf(" <<");
+        printf("\n");
+    }
+    if (invalids>0){
+        ansiColorSet(RED_BRIGHT);
+        printf("  Invalid:%d\n",invalids);
+        ansiColorSet(NONE);
+    }
+
+    DFSResult res;
+    res=dfsrs[maxIdx];
+
     return res;
 }
-
 
 int main(){
 
@@ -337,19 +408,20 @@ int main(){
 
 
 
+
         DFSResult dfsr;
         int dfsDepth;
         if (CONSTANT_SEARCH_DEPTH){
             dfsDepth=CONSTANT_SEARCH_DEPTH;
             printf("DFS calculating... constant depth %d\n",dfsDepth);
-            dfsr=search(gs,0,dfsDepth,gs.getScore());
+            dfsr=searchHL(gs,dfsDepth);
         }else{
             dfsDepth=1;
             while (dfsDepth<MAX_SEARCH_DEPTH){
-                printf("\rDFS calculating... dynamic depth %d  ",dfsDepth);
+                printf("DFS calculating... dynamic depth %d  \n",dfsDepth);
                 fflush(stdout);
                 uint64_t startT=timeSinceEpochMillisec();
-                dfsr=search(gs,0,dfsDepth,gs.getScore());
+                dfsr=searchHL(gs,dfsDepth);
                 uint64_t deltaT=timeSinceEpochMillisec()-startT;
                 if (deltaT>ADDITIONAL_DEPTH_THRESH) break;
                 dfsDepth++;

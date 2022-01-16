@@ -59,5 +59,6 @@ public:
     uint32_t getCurrentStepNum();
     Board getBoard();
     int32_t getScore();
+    PieceQueue* getPQ();
     PlacementResult applyPlacement(Placement pl);
 };
