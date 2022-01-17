@@ -40,7 +40,7 @@
 #define CONSTANT_SEED 0
 
 #define MAX_RANDSEARCH_ITER 30
-#define MIN_RANDSEARCH_ITER 5
+#define MIN_RANDSEARCH_ITER 10
 
 #define PREVIEW_PIECES 5
 
@@ -49,11 +49,12 @@
 
 
 // Disable board-fitness heuristic
-#define DISABLE_BOARD_FITNESS_HEURISTIC
+//#define DISABLE_BOARD_FITNESS_HEURISTIC
+
 
 #define NUM_THREADS 4
 
-#define TARGET_MILLISEC_PER_TURN 3000
+#define TARGET_MILLISEC_PER_TURN 5000
 
 uint64_t timeSinceEpochMillisec() {
   using namespace std::chrono;
@@ -117,8 +118,8 @@ int calculateIslandness(Board b){
         Board island=floodFillBoard(b,start);
 
         int cellcount=island.countCells();
-        if (cellcount<6) n+=10*(6-cellcount);
-        else if (cellcount<10) n+=2;
+        if (cellcount<5) n+=10*(5-cellcount);
+        //else if (cellcount<10) n+=2;
         //remove this island
         b=b.bitwiseAND(island.bitwiseNOT());
     }
@@ -130,8 +131,9 @@ int calculateBoardFitness(Board b){
     int islandnessP=calculateIslandness(b);
     int islandnessN=calculateIslandness(negboard);
     int emptycells=negboard.countCells();
-    return -(islandnessP+islandnessN*3)+emptycells*4;
+    return -(islandnessP+islandnessN*3)+emptycells*2;
     //return emptycells;
+    //return -(islandnessN)+emptycells*10;
 }
 #endif
 #ifdef DISABLE_BOARD_FITNESS_HEURISTIC
@@ -141,14 +143,15 @@ int calculateBoardFitness(Board b){
 #endif
 struct DFSResult{
     Placement bestPlacement;
-    int32_t compositeScore;
+    int32_t boardFitness;
+    int32_t scoreDelta;
     bool valid;
     bool computationInterrupted;
 };
 typedef struct DFSResult DFSResult;
 
 int32_t calculateCompositeScore(int sd,int bf){
-    return sd*10+bf*5;
+    return sd*100+bf*1;
     //return bf*10;
     //return sd*10;
 }
@@ -156,15 +159,15 @@ int32_t calculateCompositeScore(int sd,int bf){
 DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseScore, PieceQueue *pq, bool *killRequest){
 
     DFSResult nullResult;
-    nullResult.compositeScore=-100000;
     nullResult.valid=false;
     nullResult.computationInterrupted=false;
+    nullResult.boardFitness=-123456;
+    nullResult.scoreDelta=-123457;
 
     if (*killRequest) {
         nullResult.computationInterrupted=true;
         return nullResult;
     }
-
     assert (depth<targetDepth);
 
 
@@ -198,10 +201,8 @@ DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseSc
                 //printf("Depth %d X %d Y %d\n",depth,x,y);
                 // DFS result until here
                 DFSResult dr;
-                dr.compositeScore=calculateCompositeScore(
-                    inState.getScore()-baseScore,
-                    calculateBoardFitness(pr.finalResult)
-                );
+                dr.scoreDelta=inState.getScore()-baseScore;
+                dr.boardFitness=calculateBoardFitness(pr.finalResult);
                 dr.bestPlacement=pl;
                 dr.valid=true;
                 dr.computationInterrupted=false;
@@ -209,15 +210,32 @@ DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseSc
                 // Try recursing
                 if (depth+1<targetDepth){
                     DFSResult dr_recursed=search(inState,depth+1,targetDepth,baseScore, pq, killRequest);
-
-                    // Take the final score
-                    dr.compositeScore=dr_recursed.compositeScore;
+                    if (dr_recursed.valid){
+                        // Take the final score
+                        dr.scoreDelta=dr_recursed.scoreDelta;
+                        dr.boardFitness=dr_recursed.boardFitness;
+                    }else{
+                        // If none of the the futures lead anywhere
+                        // this branch is dead
+                        dr.valid=false;
+                    }
                 }
 
-                // Copy result into optimal if score greatest
-                if (dr.compositeScore>optimalResult.compositeScore){
-                    //printf("Optimmal found %d X %d Y %d\n",depth,x,y);
-                    optimalResult=dr;
+                if (dr.valid){
+                    if (!optimalResult.valid){
+                        optimalResult=dr;
+                    }
+                    // Copy result into optimal if score greatest
+                    int32_t cs_this=calculateCompositeScore(
+                        dr.scoreDelta,dr.boardFitness
+                    );
+                    int32_t cs_optimal=calculateCompositeScore(
+                        optimalResult.scoreDelta,optimalResult.boardFitness
+                    );
+                    if (cs_this>cs_optimal){
+                        //printf("Optimmal found %d X %d Y %d\n",depth,x,y);
+                        optimalResult=dr;
+                    }
                 }
             }
         }
@@ -315,6 +333,8 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimi
 
     Placement uniquePlacements[MAX_RANDSEARCH_ITER];
     int numUniquePlacements=0;
+    int32_t bfSums[MAX_RANDSEARCH_ITER];
+    int32_t sdx100Sums[MAX_RANDSEARCH_ITER];
     int uniquePlacementCount[MAX_RANDSEARCH_ITER];
     int maxCount=0;
     int maxIdx=-1;
@@ -325,10 +345,10 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimi
     initializeThreads(depth,gs,pq);
     while(1){
         uint64_t t=timeSinceEpochMillisec();
-        printf("\r  Queued job %d of %d",
-              nextWorkIndex,targetResultNum);
-        int n=(t/50)%5;
-        for (int i=0;i<5;i++){
+        printf("\r  Completed job %d of %d",
+              numThreadResults,targetResultNum);
+        int n=(t/100)%8;
+        for (int i=0;i<8;i++){
             if (i<n) printf(".");
             else printf(" ");
         }
@@ -336,12 +356,12 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimi
         fflush(stdout);
         if (t>timelimit){
             threadKillRequest=true;
-            printf("\r  Timeout (%d/%d)            \n",
+            printf("\r  Timeout (%d/%d)                 \n",
                    numThreadResults,targetResultNum);
             break;
         }
-        if (nextWorkIndex==targetResultNum){
-            printf("\r  Work done (%d)           \n",
+        if (numThreadResults==targetResultNum){
+            printf("\r  Work done (%d)                \n",
                    targetResultNum);
             break;
         }
@@ -361,7 +381,17 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimi
             // sanity
             Piece placementPiece=dfsr.bestPlacement.piece;
             assert (placementPiece.equal(nextPiece));
-
+            assert(!dfsr.computationInterrupted);
+            assert(dfsr.boardFitness>-100000);
+            assert(dfsr.scoreDelta>-100000);
+            /*
+            printf("    DFSR[%d] X %d Y %d BF %d SD %d CI%d\n",
+                   i,
+                   dfsr.bestPlacement.x,
+                   dfsr.bestPlacement.y,
+                   dfsr.boardFitness,
+                   dfsr.scoreDelta,
+                   dfsr.computationInterrupted);*/
             int duplicateOf=-1;
             Placement p1=dfsr.bestPlacement;
             for(int i=0;i<numUniquePlacements;i++){
@@ -373,17 +403,21 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimi
             }
             if (duplicateOf==-1){
                 uniquePlacements[numUniquePlacements]=p1;
-                uniquePlacementCount[numUniquePlacements]=1;
+                uniquePlacementCount[numUniquePlacements]=0;
+                bfSums[numUniquePlacements]=0;
+                sdx100Sums[numUniquePlacements]=0;
                 duplicateOf=numUniquePlacements;
                 numUniquePlacements++;
-            }else{
-                uniquePlacementCount[duplicateOf]++;
             }
+            uniquePlacementCount[duplicateOf]++;
+            bfSums[duplicateOf]+=dfsr.boardFitness;
+            sdx100Sums[duplicateOf]+=dfsr.scoreDelta*100;
             if (uniquePlacementCount[duplicateOf]>maxCount){
                 maxCount=uniquePlacementCount[duplicateOf];
                 maxIdx=duplicateOf;
             }
         }else{
+            //printf("    DFSR[%d] invalid\n",i);
             invalids++;
         }
     }
@@ -393,14 +427,31 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimi
     SearchResult sr;
     sr.searchDepth=depth;
     if (sufficientIterations){
-        printf("  Results:");
+        printf("  Result");
         for(int i=0;i<numUniquePlacements;i++){
             if (i!=maxIdx) continue;
-            printf(" | X%d Y%d (%d/%d)",
-                    uniquePlacements[i].x,
-                    uniquePlacements[i].y,
-                    uniquePlacementCount[i],
-                   numThreadResults);
+            Placement pl=uniquePlacements[i];
+            int count=uniquePlacementCount[i];
+            int percentage=count*100/numThreadResults;
+            int32_t bfAvg=bfSums[i]/count;
+            int32_t sdx100Avg=sdx100Sums[i]/count;
+            printf(" | X%d Y%d BFavg %d SDavg %.2f",
+                pl.x,pl.y,
+                bfAvg,sdx100Avg/100.0);
+            if (numThreadResults==1) {
+                ansiColorSet(GREEN_DIM);
+                printf(" (Determined)");
+                ansiColorSet(NONE);
+            }else{
+                if (percentage>70) ansiColorSet(GREEN_BRIGHT);
+                else if (percentage>30) ansiColorSet(YELLOW_BRIGHT);
+                else ansiColorSet(MAGENTA_BRIGHT);
+                printf(" (%d/%d = %d%%) ",
+                    count,numThreadResults,
+                    percentage
+                    );
+                ansiColorSet(NONE);
+            }
             /*
             if (uniquePlacementCount[i]==maxCount) printf(" *");
             if (i==maxIdx) printf(" <<");
@@ -503,8 +554,10 @@ int main(){
     Board lastBoard;
     GameState gs;
     while (1){
-#ifndef SERVER_GAME
         printf("\n\n\n");
+
+#ifndef SERVER_GAME
+
         if (MAX_GAME_STEPS){
             if (gs.getCurrentStepNum() >= MAX_GAME_STEPS){
                 ansiColorSet(RED);
@@ -581,8 +634,9 @@ int main(){
 
 
 
-
-
+        ansiColorSet(BLUE_BRIGHT);
+        printf("   ===== Move %d =====   \n",gs.getCurrentStepNum()+1);
+        ansiColorSet(NONE);
 
         SearchResult sr;
         sr=dynamicDepthSearch(gs,&pq,TARGET_MILLISEC_PER_TURN);
@@ -609,6 +663,18 @@ int main(){
         drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
 
         lastBoard=pr.finalResult;
+#ifndef DISABLE_BOARD_FITNESS_HEURISTIC
+        ansiColorSet(WHITE_DIM);
+        printf("islandnessP %d\n",
+               calculateIslandness(pr.finalResult));
+        printf("islandnessN %d\n",
+               calculateIslandness(pr.finalResult.bitwiseNOT()));
+        printf("cell# %d\n",
+               pr.finalResult.bitwiseNOT().countCells());
+        printf("Fitness %d\n",
+               calculateBoardFitness(pr.finalResult));
+        ansiColorSet(NONE);
+#endif
 #ifdef SERVER_GAME
         ClientMove cm;
         for(int x=0;x<5;x++){
