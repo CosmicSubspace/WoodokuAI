@@ -50,17 +50,13 @@ class GameState{
 private:
     int32_t score;
     Board board;
-    PieceQueue *pq;
     uint32_t currentPieceIndex;
 public:
-    GameState(PieceQueue *pieceQueue);
+    GameState();
     void incrementPieceQueue();
-    Piece getCurrentPiece();
-    bool currentPieceVisible();
     uint32_t getCurrentStepNum();
     Board getBoard();
     void setBoard(Board b);
     int32_t getScore();
-    PieceQueue* getPQ();
     PlacementResult applyPlacement(Placement pl);
 };

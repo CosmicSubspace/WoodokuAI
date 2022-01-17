@@ -6,10 +6,10 @@
 #include "limits.h"
 #include "time.h"
 
-
+#include <thread>
 #include <iostream>
 #include <chrono>
-
+#include <mutex>
 
 #include "piece.h"
 #include "printutil.h"
@@ -45,13 +45,15 @@
 #define PREVIEW_PIECES 5
 
 // Connect to a game server.
-#define SERVER_GAME
+//#define SERVER_GAME
 
 
 // Disable board-fitness heuristic
 #define DISABLE_BOARD_FITNESS_HEURISTIC
 
+#define NUM_THREADS 4
 
+#define TARGET_MILLISEC_PER_TURN 3000
 
 uint64_t timeSinceEpochMillisec() {
   using namespace std::chrono;
@@ -141,6 +143,7 @@ struct DFSResult{
     Placement bestPlacement;
     int32_t compositeScore;
     bool valid;
+    bool computationInterrupted;
 };
 typedef struct DFSResult DFSResult;
 
@@ -150,22 +153,23 @@ int32_t calculateCompositeScore(int sd,int bf){
     //return sd*10;
 }
 
-DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseScore, PieceQueue *pqOverride){
+DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseScore, PieceQueue *pq, bool *killRequest){
 
     DFSResult nullResult;
     nullResult.compositeScore=-100000;
     nullResult.valid=false;
+    nullResult.computationInterrupted=false;
+
+    if (*killRequest) {
+        nullResult.computationInterrupted=true;
+        return nullResult;
+    }
 
     assert (depth<targetDepth);
 
 
     Piece currentPiece;
-    PieceQueue *pq;
-    if (pqOverride != nullptr){
-        pq=pqOverride;
-    }else{
-        pq=initialState.getPQ();
-    }
+
     assert (pq->isVisible(initialState.getCurrentStepNum()));
     currentPiece=pq->getPiece(initialState.getCurrentStepNum());
     //printf("Depth %d\n",depth);
@@ -200,10 +204,11 @@ DFSResult search(GameState initialState,int depth,int targetDepth,int32_t baseSc
                 );
                 dr.bestPlacement=pl;
                 dr.valid=true;
+                dr.computationInterrupted=false;
 
                 // Try recursing
                 if (depth+1<targetDepth){
-                    DFSResult dr_recursed=search(inState,depth+1,targetDepth,baseScore, pqOverride);
+                    DFSResult dr_recursed=search(inState,depth+1,targetDepth,baseScore, pq, killRequest);
 
                     // Take the final score
                     dr.compositeScore=dr_recursed.compositeScore;
@@ -228,17 +233,85 @@ struct SearchResult{
 };
 typedef struct SearchResult SearchResult;
 
-SearchResult searchHL(GameState gs, int depth, uint64_t timelimit){
-    //DFSResult dfsrs[MAX_RANDSEARCH_ITER];
-    bool hasInvisible=false;
-    int actualRandSearchN=0;
-    Piece nextPiece=gs.getPQ()->getPiece(gs.getCurrentStepNum());
+std::mutex threadMtx;
+bool threadKillRequest;
+std::thread workerThreads[NUM_THREADS];
+DFSResult threadResults[MAX_RANDSEARCH_ITER];
+PieceQueue threadPQ[MAX_RANDSEARCH_ITER];
+GameState threadGameState[MAX_RANDSEARCH_ITER];
+int targetResultNum;
+int numThreadResults;
+int nextWorkIndex;
+int threadTargetDepth;
 
+void threadFunc();
+void initializeThreads(int depth,GameState gs,PieceQueue *pq){
+    threadKillRequest=false;
+    numThreadResults=0;
+    nextWorkIndex=0;
+    threadTargetDepth=depth;
+    targetResultNum=MAX_RANDSEARCH_ITER;
 
-    for (int i=0;i<depth;i++){
-        if (!gs.getPQ()->isVisible(gs.getCurrentStepNum()+i)){
-            hasInvisible=true;
-        }}
+    bool determined_future=true;
+    for(int ri=0;ri<MAX_RANDSEARCH_ITER;ri++){
+        PieceQueue tmpPQ=*pq;
+        uint32_t currentStep=gs.getCurrentStepNum();
+        for (int i=0;i<depth;i++){
+            if (!tmpPQ.isVisible(currentStep+i)){
+                tmpPQ.setPiece(
+                    currentStep+i,
+                    getGlobalPG()->generate());
+                determined_future=false;
+            }
+        }
+        threadPQ[ri]=tmpPQ;
+        threadGameState[ri]=gs;
+        if (determined_future){
+            targetResultNum=1;
+            break;
+        }
+    }
+
+    for(int i=0;i<NUM_THREADS;i++){
+        workerThreads[i]=std::thread(threadFunc);
+    }
+}
+void threadFunc(){
+    while(1){
+        threadMtx.lock();
+        if (nextWorkIndex==targetResultNum){
+             // No work left.
+            threadMtx.unlock();
+            return;
+        }
+
+        int thisIndex=nextWorkIndex;
+        nextWorkIndex++;
+        GameState gs;
+        int depth;
+        PieceQueue *pq;
+        gs=threadGameState[thisIndex];
+        depth=threadTargetDepth;
+        pq=&(threadPQ[thisIndex]);
+        threadMtx.unlock();
+
+        DFSResult dfsr=search(gs,0,depth,gs.getScore(),pq,&threadKillRequest);
+
+        threadMtx.lock();
+        if (!threadKillRequest){
+            assert (!dfsr.computationInterrupted);
+            int resultIndex=numThreadResults;
+            numThreadResults++;
+            threadResults[resultIndex]=dfsr;
+        }
+        threadMtx.unlock();
+    }
+}
+void sleepMillis(uint32_t ms){
+    usleep(ms*1000);
+}
+SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimit){
+    Piece nextPiece=pq->getPiece(gs.getCurrentStepNum());
 
     Placement uniquePlacements[MAX_RANDSEARCH_ITER];
     int numUniquePlacements=0;
@@ -247,24 +320,43 @@ SearchResult searchHL(GameState gs, int depth, uint64_t timelimit){
     int maxIdx=-1;
     int invalids=0;
 
-    int mci=0;
-    while (1){
-        printf("\rSearching... depth %d, randiter %d   ",depth,mci);
-        fflush(stdout);
-        PieceQueue tmpPQ=*(gs.getPQ());
-
-        for (int i=0;i<depth;i++){
-            if (!tmpPQ.isVisible(gs.getCurrentStepNum()+i)){
-                tmpPQ.setPiece(
-                    gs.getCurrentStepNum()+i,
-                    getGlobalPG()->generate());
-            }
+    printf("  Initializing threads...");
+    fflush(stdout);
+    initializeThreads(depth,gs,pq);
+    while(1){
+        uint64_t t=timeSinceEpochMillisec();
+        printf("\r  Queued job %d of %d",
+              nextWorkIndex,targetResultNum);
+        int n=(t/50)%5;
+        for (int i=0;i<5;i++){
+            if (i<n) printf(".");
+            else printf(" ");
         }
+        printf("        ");
+        fflush(stdout);
+        if (t>timelimit){
+            threadKillRequest=true;
+            printf("\r  Timeout (%d/%d)            \n",
+                   numThreadResults,targetResultNum);
+            break;
+        }
+        if (nextWorkIndex==targetResultNum){
+            printf("\r  Work done (%d)           \n",
+                   targetResultNum);
+            break;
+        }
+        sleepMillis(10);
+    }
 
-        DFSResult dfsr=search(gs,0,depth,gs.getScore(),&tmpPQ);
-        //dfsrs[mci]=dfsr;
-        actualRandSearchN++;
+    printf("  Joining threads...\r");
+    fflush(stdout);
+    for(int i=0;i<NUM_THREADS;i++){
+        workerThreads[i].join();
+    }
 
+
+    for (int i=0;i<numThreadResults;i++){
+        DFSResult dfsr=threadResults[i];
         if (dfsr.valid){
             // sanity
             Piece placementPiece=dfsr.bestPlacement.piece;
@@ -294,45 +386,34 @@ SearchResult searchHL(GameState gs, int depth, uint64_t timelimit){
         }else{
             invalids++;
         }
-        //All pieces visible - just return now
-        if (!hasInvisible) {
-            printf("\n  Determined future - breaking!\n");
-            break;
-        }
-        if (timeSinceEpochMillisec()>timelimit){
-            printf("\n  Timeout\n");
-            break;
-        }
-
-
-        mci++;
-        if (mci==MAX_RANDSEARCH_ITER){
-            printf("\n  Max randiter reached\n");
-            break;
-        }
-
-
     }
 
-    bool sufficientIterations=(!hasInvisible) || (mci>=MIN_RANDSEARCH_ITER);
+    bool sufficientIterations=(numThreadResults>=targetResultNum) || (numThreadResults>=MIN_RANDSEARCH_ITER);
 
     SearchResult sr;
     sr.searchDepth=depth;
     if (sufficientIterations){
+        printf("  Results:");
         for(int i=0;i<numUniquePlacements;i++){
-            printf("  X %d Y %d (%d hits)",
+            if (i!=maxIdx) continue;
+            printf(" | X%d Y%d (%d/%d)",
                     uniquePlacements[i].x,
                     uniquePlacements[i].y,
-                    uniquePlacementCount[i]);
+                    uniquePlacementCount[i],
+                   numThreadResults);
+            /*
             if (uniquePlacementCount[i]==maxCount) printf(" *");
             if (i==maxIdx) printf(" <<");
-            printf("\n");
+            printf("\n");*/
         }
         if (invalids>0){
             ansiColorSet(RED_BRIGHT);
-            printf("  Invalid:%d\n",invalids);
+            printf(" | Invalid:%d (%d%%)",
+                   invalids,
+                   invalids*100/numThreadResults);
             ansiColorSet(NONE);
         }
+        printf("\n");
 
         if (maxIdx==-1){
             // No results
@@ -355,7 +436,7 @@ SearchResult searchHL(GameState gs, int depth, uint64_t timelimit){
     return sr;
 }
 
-SearchResult dynamicDepthSearch(GameState gs, uint64_t maxMillis){
+SearchResult dynamicDepthSearch(GameState gs, PieceQueue *pq, uint64_t maxMillis){
     uint64_t timelimit=timeSinceEpochMillisec()+maxMillis;
 
     SearchResult searchres[MAX_SEARCH_DEPTH];
@@ -365,7 +446,8 @@ SearchResult dynamicDepthSearch(GameState gs, uint64_t maxMillis){
     int depth=1;
     while (depth<MAX_SEARCH_DEPTH){
         if (timeSinceEpochMillisec()>timelimit) break;
-        SearchResult sr=searchHL(gs,depth,timelimit);
+        printf("Searching depth %d\n",depth);
+        SearchResult sr=searchHL(gs,pq,depth,timelimit);
         searchres[depth]=sr;
         if (sr.isValid) finalResult=sr;
         depth++;
@@ -419,7 +501,7 @@ int main(){
     PieceQueue pq;
     PieceGenerator *pgen=getGlobalPG();
     Board lastBoard;
-    GameState gs(&pq);
+    GameState gs;
     while (1){
 #ifndef SERVER_GAME
         printf("\n\n\n");
@@ -503,8 +585,8 @@ int main(){
 
 
         SearchResult sr;
-        sr=dynamicDepthSearch(gs,5000);
-        printf("Search result: depth %d\n",sr.searchDepth);
+        sr=dynamicDepthSearch(gs,&pq,TARGET_MILLISEC_PER_TURN);
+        printf("Taking result from depth %d\n",sr.searchDepth);
         drawPieceQueue(&pq,gs.getCurrentStepNum(),PREVIEW_PIECES,sr.searchDepth);
 
         PlacementResult pr;

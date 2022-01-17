@@ -155,20 +155,13 @@ PlacementResult doPlacement(Board b,Placement pl){
 }
 
 
-GameState::GameState(PieceQueue *pieceQueue){
+GameState::GameState(){
     score=0;
     board=Board();
-    pq=pieceQueue;
     currentPieceIndex=0;
 }
 void GameState::incrementPieceQueue(){
     currentPieceIndex++;
-}
-Piece GameState::getCurrentPiece(){
-    return pq->getPiece(currentPieceIndex);
-}
-bool GameState::currentPieceVisible(){
-    return pq->isVisible(currentPieceIndex);
 }
 uint32_t GameState::getCurrentStepNum(){
     return currentPieceIndex;
@@ -187,9 +180,6 @@ PlacementResult GameState::applyPlacement(Placement pl){
         incrementPieceQueue();
     }
     return pr;
-}
-PieceQueue* GameState::getPQ(){
-    return pq;
 }
 void GameState::setBoard(Board b){
     board=b;
