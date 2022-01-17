@@ -30,6 +30,7 @@ public:
     Board bitwiseAND(Board other);
     Board bitwiseNOT();
     int countCells();
+    bool equal(Board other);
 };
 
 
@@ -58,6 +59,7 @@ public:
     bool currentPieceVisible();
     uint32_t getCurrentStepNum();
     Board getBoard();
+    void setBoard(Board b);
     int32_t getScore();
     PieceQueue* getPQ();
     PlacementResult applyPlacement(Placement pl);

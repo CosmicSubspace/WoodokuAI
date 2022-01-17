@@ -411,6 +411,79 @@ void initializeGlobalPG(){
     tmp.addBlock(1,1);
     pieces[pieceN++]=tmp;
 
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(1,2);
+    tmp.addBlock(2,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(2,1);
+    tmp.addBlock(2,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(2,0);
+    tmp.addBlock(2,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(1,2);
+    tmp.addBlock(2,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(1,1);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(1,1);
+    tmp.addBlock(0,2);
+    tmp.addBlock(1,2);
+    pieces[pieceN++]=tmp;
+
+    tmp=Piece();
+    tmp.addBlock(0,0);
+    tmp.addBlock(1,0);
+    tmp.addBlock(2,0);
+    tmp.addBlock(0,1);
+    tmp.addBlock(2,1);
+    pieces[pieceN++]=tmp;
+
+
     globalPG= new PieceGenerator(pieces,pieceN);
 }
 

@@ -40,16 +40,16 @@
 #define CONSTANT_SEED 0
 
 #define MAX_RANDSEARCH_ITER 30
-
+#define MIN_RANDSEARCH_ITER 5
 
 #define PREVIEW_PIECES 5
 
 // Connect to a game server.
-//#define SERVER_GAME
+#define SERVER_GAME
 
 
 // Disable board-fitness heuristic
-//#define DISABLE_BOARD_FITNESS_HEURISTIC
+#define DISABLE_BOARD_FITNESS_HEURISTIC
 
 
 
@@ -128,8 +128,8 @@ int calculateBoardFitness(Board b){
     int islandnessP=calculateIslandness(b);
     int islandnessN=calculateIslandness(negboard);
     int emptycells=negboard.countCells();
-    //return -(islandnessP+islandnessN*3)+emptycells*4;
-    return emptycells;
+    return -(islandnessP+islandnessN*3)+emptycells*4;
+    //return emptycells;
 }
 #endif
 #ifdef DISABLE_BOARD_FITNESS_HEURISTIC
@@ -145,8 +145,8 @@ struct DFSResult{
 typedef struct DFSResult DFSResult;
 
 int32_t calculateCompositeScore(int sd,int bf){
-    //return sd*10+bf*5;
-    return bf*10;
+    return sd*10+bf*5;
+    //return bf*10;
     //return sd*10;
 }
 
@@ -228,8 +228,7 @@ struct SearchResult{
 };
 typedef struct SearchResult SearchResult;
 
-SearchResult searchHL(GameState gs, int depth, uint64_t maxSearchTimeMillis){
-    uint64_t startT=timeSinceEpochMillisec();
+SearchResult searchHL(GameState gs, int depth, uint64_t timelimit){
     //DFSResult dfsrs[MAX_RANDSEARCH_ITER];
     bool hasInvisible=false;
     int actualRandSearchN=0;
@@ -297,51 +296,83 @@ SearchResult searchHL(GameState gs, int depth, uint64_t maxSearchTimeMillis){
         }
         //All pieces visible - just return now
         if (!hasInvisible) {
-            printf("\nDetermined future - breaking!");
+            printf("\n  Determined future - breaking!\n");
             break;
         }
-        if ((timeSinceEpochMillisec()-startT)>maxSearchTimeMillis){
-            printf("\nTimeout");
+        if (timeSinceEpochMillisec()>timelimit){
+            printf("\n  Timeout\n");
             break;
         }
-        if (mci==MAX_RANDSEARCH_ITER){
-            printf("\nMax randiter reached");
-            break;
-        }
+
 
         mci++;
-    }
+        if (mci==MAX_RANDSEARCH_ITER){
+            printf("\n  Max randiter reached\n");
+            break;
+        }
 
 
-    printf("\n");
-    for(int i=0;i<numUniquePlacements;i++){
-        printf("  X %d Y %d (%d hits)",
-               uniquePlacements[i].x,
-               uniquePlacements[i].y,
-                uniquePlacementCount[i]);
-        if (uniquePlacementCount[i]==maxCount) printf(" *");
-        if (i==maxIdx) printf(" <<");
-        printf("\n");
     }
-    if (invalids>0){
-        ansiColorSet(RED_BRIGHT);
-        printf("  Invalid:%d\n",invalids);
-        ansiColorSet(NONE);
-    }
+
+    bool sufficientIterations=(!hasInvisible) || (mci>=MIN_RANDSEARCH_ITER);
 
     SearchResult sr;
     sr.searchDepth=depth;
-    if (maxIdx==-1){
-        // No results
-        sr.isValid=false;
+    if (sufficientIterations){
+        for(int i=0;i<numUniquePlacements;i++){
+            printf("  X %d Y %d (%d hits)",
+                    uniquePlacements[i].x,
+                    uniquePlacements[i].y,
+                    uniquePlacementCount[i]);
+            if (uniquePlacementCount[i]==maxCount) printf(" *");
+            if (i==maxIdx) printf(" <<");
+            printf("\n");
+        }
+        if (invalids>0){
+            ansiColorSet(RED_BRIGHT);
+            printf("  Invalid:%d\n",invalids);
+            ansiColorSet(NONE);
+        }
 
-    }else {
-        sr.isValid=true;
-        sr.optimalPlacement=uniquePlacements[maxIdx];
+        if (maxIdx==-1){
+            // No results
+            sr.isValid=false;
+
+        }else {
+            sr.isValid=true;
+            sr.optimalPlacement=uniquePlacements[maxIdx];
+        }
+
+    }else{
+        printf("  Insufficient iterations, ignoring...\n");
+        sr.isValid=false;
     }
 
 
+
+
+
     return sr;
+}
+
+SearchResult dynamicDepthSearch(GameState gs, uint64_t maxMillis){
+    uint64_t timelimit=timeSinceEpochMillisec()+maxMillis;
+
+    SearchResult searchres[MAX_SEARCH_DEPTH];
+    SearchResult finalResult;
+    finalResult.isValid=false;
+    finalResult.searchDepth=0;
+    int depth=1;
+    while (depth<MAX_SEARCH_DEPTH){
+        if (timeSinceEpochMillisec()>timelimit) break;
+        SearchResult sr=searchHL(gs,depth,timelimit);
+        searchres[depth]=sr;
+        if (sr.isValid) finalResult=sr;
+        depth++;
+    }
+
+    return finalResult;
+
 }
 
 int main(){
@@ -413,11 +444,37 @@ int main(){
 #endif
 #ifdef SERVER_GAME
         ServerState ss;
+        int waitN=0;
         while (!wc.getServerStateUpdate(&ss)){
             // wait for server
-            printf("wait for server..\n");
+            printf("\rwait for server");
+            waitN=(waitN+1)%10;
+            for (int i=0;i<10;i++){
+                if (i<waitN) printf(".");
+                else printf(" ");
+            }
+            fflush(stdout);
             usleep(100*1000);
         }
+        printf("\n");
+        bool mismatched=false;
+        Board serverBoard;
+        for(int y=0;y<BOARD_SIZE;y++){
+            for (int x=0;x<BOARD_SIZE;x++){
+                bool boardcell=ss.boardState[x+y*BOARD_SIZE];
+                serverBoard.write(x,y,boardcell);
+            }
+        }
+
+        if (!serverBoard.equal(gs.getBoard())){
+            ansiColorSet(RED);
+            printf("Board mismatch\n");
+            ansiColorSet(NONE);
+            printf("Overridden board:\n");
+            gs.setBoard(serverBoard);
+            drawBoard(gs.getBoard());
+        }
+
 
         Piece servPieces[3];
         for (int x=0;x<5;x++){
@@ -446,26 +503,9 @@ int main(){
 
 
         SearchResult sr;
-        int dfsDepth;
-        if (CONSTANT_SEARCH_DEPTH){
-            dfsDepth=CONSTANT_SEARCH_DEPTH;
-            //printf("DFS calculating... constant depth %d\n",dfsDepth);
-            sr=searchHL(gs,dfsDepth,5000);
-        }else{
-            dfsDepth=1;
-            while (dfsDepth<MAX_SEARCH_DEPTH){
-                //printf("DFS calculating... dynamic depth %d  \n",dfsDepth);
-
-                uint64_t startT=timeSinceEpochMillisec();
-                sr=searchHL(gs,dfsDepth,5000);
-                uint64_t deltaT=timeSinceEpochMillisec()-startT;
-                if (deltaT>ADDITIONAL_DEPTH_THRESH) break;
-                dfsDepth++;
-            }
-            printf("\n");
-        }
-
-        drawPieceQueue(&pq,gs.getCurrentStepNum(),PREVIEW_PIECES,dfsDepth);
+        sr=dynamicDepthSearch(gs,5000);
+        printf("Search result: depth %d\n",sr.searchDepth);
+        drawPieceQueue(&pq,gs.getCurrentStepNum(),PREVIEW_PIECES,sr.searchDepth);
 
         PlacementResult pr;
         Placement placement;

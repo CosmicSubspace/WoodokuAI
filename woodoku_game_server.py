@@ -25,119 +25,8 @@ import random
 import threading
 import tkinter
 
-
-class Piece:
-    def __init__(self):
-        self._coords=set()
-    def __eq__(self,other):
-        return self._coords==other._coords
-    def add_block(self,x,y):
-        self._coords.add((x,y))
-    def coords(self):
-        return tuple(self._coords)
-    def read(self,x,y):
-        return (x,y) in self._coords
-    def write(self,x,y,v):
-        if self.read(x,y)!=v:
-            self.flip(x,y)
-    def flip(self,x,y):
-        if (x,y) in self._coords:
-            self._coords.remove((x,y))
-        else:
-            self._coords.add((x,y))
-    def to_boolarray(self):
-        ba=bytearray()
-        for y in range(5):
-            for x in range(5):
-                if self.read(x,y):
-                    ba.append(1)
-                else:
-                    ba.append(0)
-        return bytes(ba)
-    @classmethod
-    def from_boolarray(cls,b):
-        res=cls()
-        if len(b) != 25:
-            raise ValueError("Invalid length")
-        for i in range(25):
-            x=i%5
-            y=i//5
-            if b[i] != 0:
-                res.write(x,y,True)
-        return res
-    def __str__(self):
-        s=''
-        for y in range(5):
-            for x in range(5):
-                if self.read(x,y):
-                    s+="[]"
-                else:
-                    s+="  "
-            s+="\n"
-        return s
-
-with open("piecedefs.txt","r") as f:
-    s=f.read()
-
-groups=[]
-current=[]
-for line in s.split("\n"):
-    if not line.strip():
-        if current:
-            groups.append(current)
-        current=[]
-    else:
-        current.append(line)
-
-pieces=[]
-for g in groups:
-    p=Piece()
-    y=0
-    for line in g:
-        x=0
-        for c in line:
-            if c=="#":
-                p.write(x,y,True)
-            x+=1
-        y+=1
-    pieces.append(p)
-'''
-for p in pieces:
-    print("{}\n{}".format(p.to_boolarray(),str(p)))
-'''
-class Board:
-    def __init__(self):
-        self._board=[False]*81
-    def clone(self):
-        res=Board()
-        for i in range(81):
-            res._board[i]=self._board[i]
-        return res
-    @staticmethod
-    def _coord2idx(x,y):
-        return x+y*9
-    def read(self,x,y):
-        return self._board[self._coord2idx(x,y)]
-    def write(self,x,y,v):
-        self._board[self._coord2idx(x,y)]=v
-    def __str__(self):
-        s=''
-        for y in range(9):
-            for x in range(9):
-                if self.read(x,y):
-                    s+="[]"
-                else:
-                    s+="  "
-            s+="\n"
-        return s
-    def to_boolarray(self):
-        b=bytearray()
-        for i in range(81):
-            if self._board[i]:
-                b.append(1)
-            else:
-                b.append(0)
-        return bytes(b)
+from woodoku_common import *
+import android_woodoku_driver
 
 def generate_ssup(board,nexts):
     ba=bytearray()
@@ -207,8 +96,24 @@ class GameThread(threading.Thread):
         print("Game start")
         lastTickTime=time.time()
         while True:
+            input("Enter to read state from phone...")
+            phone_sc=android_woodoku_driver.screencap()
+            phone_b=android_woodoku_driver.get_board_state(phone_sc)
+            phone_p=android_woodoku_driver.get_pieces(phone_sc)
+            if phone_b != self._board:
+                print("Mismatched board!")
+                print("Phone:")
+                print(phone_b)
+                print("Local:")
+                print(self._board)
+                input("Enter to override.")
+            self._board=phone_b
+            self._nexts=phone_p
+            print("Got state from phone")
+
             print("\n\n")
             if len(self._nexts)==0:
+                0/0
                 while len(self._nexts)<3:
                     self._nexts.append(random.choice(pieces))
             print("Send SSUP")
@@ -241,7 +146,10 @@ class GameThread(threading.Thread):
             for p in pieces:
                 if p==clientpiece:
                     piece=p
-            assert piece is not None
+            if piece is None:
+                print("Wrong piece??")
+                print(clientpiece)
+                0/0
             self._nexts.remove(piece)
 
             print(piece,px,py)
@@ -344,7 +252,7 @@ class CellGrid(tkinter.Frame):
         self.configure(background="#101010")
         for y in range(ysize):
             for x in range(xsize):
-                cell=tkinter.Frame(self,width=32,height=32)
+                cell=tkinter.Frame(self,width=16,height=16)
                 cell.grid(row=y,column=x,
                           padx=2,pady=2,
                           sticky="NEWS")

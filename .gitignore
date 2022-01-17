@@ -1,2 +1,3 @@
 *.o
 woodokuAI
+__pycache__/

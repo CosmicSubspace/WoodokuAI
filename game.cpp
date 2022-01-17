@@ -77,6 +77,12 @@ int Board::countCells(){
     }
     return res;
 }
+bool Board::equal(Board other){
+    for (int i=0;i<3;i++){
+        if (bitfield[i] != other.bitfield[i] ) return false;
+    }
+    return true;
+}
 
 PlacementResult doPlacement(Board b,Placement pl){
     PlacementResult pr;
@@ -184,4 +190,7 @@ PlacementResult GameState::applyPlacement(Placement pl){
 }
 PieceQueue* GameState::getPQ(){
     return pq;
+}
+void GameState::setBoard(Board b){
+    board=b;
 }
