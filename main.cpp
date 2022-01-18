@@ -45,7 +45,7 @@
 #define PREVIEW_PIECES 5
 
 // Connect to a game server.
-//#define SERVER_GAME
+#define SERVER_GAME
 
 
 // Disable board-fitness heuristic
@@ -608,6 +608,9 @@ int main(){
             printf("Overridden board:\n");
             gs.setBoard(serverBoard);
             drawBoard(gs.getBoard());
+
+            printf("Press Enter to continue.\n");
+            waitForEnter();
         }
 
 
@@ -687,7 +690,6 @@ int main(){
         wc.commitMove(&cm);
 #endif
         //printf("Enter to coninue...\n");
-        //waitForEnter();
     }
 
     printf("Ending game.\n");

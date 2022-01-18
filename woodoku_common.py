@@ -28,6 +28,13 @@ class Piece:
                 else:
                     ba.append(0)
         return bytes(ba)
+    def size(self):
+        xsize=0
+        ysize=0
+        for x,y in self._coords:
+            xsize=max(xsize,x+1)
+            ysize=max(ysize,y+1)
+        return xsize,ysize
     @classmethod
     def from_boolarray(cls,b):
         res=cls()

@@ -96,26 +96,36 @@ class GameThread(threading.Thread):
         print("Game start")
         lastTickTime=time.time()
         while True:
-            input("Enter to read state from phone...")
-            phone_sc=android_woodoku_driver.screencap()
-            phone_b=android_woodoku_driver.get_board_state(phone_sc)
-            phone_p=android_woodoku_driver.get_pieces(phone_sc)
-            if phone_b != self._board:
-                print("Mismatched board!")
-                print("Phone:")
-                print(phone_b)
-                print("Local:")
-                print(self._board)
-                input("Enter to override.")
-            self._board=phone_b
-            self._nexts=phone_p
-            print("Got state from phone")
+            android_connect=True
+            automove=True
+            if android_connect:
+                if automove:
+                    print("Sleep...")
+                    time.sleep(1)
+                else:
+                    input("Enter to read state from phone...")
+                phone_sc=android_woodoku_driver.screencap()
+                phone_b=android_woodoku_driver.get_board_state(phone_sc)
+                phone_p=android_woodoku_driver.get_pieces(phone_sc)
+                if phone_b != self._board:
+                    print("Mismatched board!")
+                    print("Phone:")
+                    print(phone_b)
+                    print("Local:")
+                    print(self._board)
+                    input("Enter to override.")
+                self._board=phone_b
+                self._nexts=[i for i in phone_p if (i is not None)]
+                self._nexts_raw=phone_p
+                print("Got state from phone")
 
             print("\n\n")
             if len(self._nexts)==0:
-                0/0
+                if android_connect:
+                    0/0
                 while len(self._nexts)<3:
                     self._nexts.append(random.choice(pieces))
+
             print("Send SSUP")
             clientsocket.send(generate_ssup(self._board,self._nexts))
 
@@ -125,13 +135,12 @@ class GameThread(threading.Thread):
             print("Board:")
             print(self._board)
 
-            print("Waiting input..")
+            print("Waiting on client...")
             clientdata=b''
             while True:
                 clientdata=clientsocket.recv(29)
                 if not clientdata:
                     time.sleep(0.5)
-                    print("No input...")
                     continue
                 else:
                     break
@@ -147,7 +156,7 @@ class GameThread(threading.Thread):
                 if p==clientpiece:
                     piece=p
             if piece is None:
-                print("Wrong piece??")
+                print("Piece not in database???")
                 print(clientpiece)
                 0/0
             self._nexts.remove(piece)
@@ -184,6 +193,38 @@ class GameThread(threading.Thread):
                     c=(x//3)+(y//3)*3
                     if clear_x[x] or clear_y[y] or clear_c[c]:
                         self._board.write(x,y,False)
+
+
+            if android_connect and automove:
+                phone_piece_idx=None
+                for i in range(len(self._nexts_raw)):
+                    if self._nexts_raw[i] is not None:
+                        if self._nexts_raw[i]==piece:
+                            phone_piece_idx=i
+
+                if phone_piece_idx is not None:
+                    for tries in range(5):
+                        print("Attempting move.",tries)
+                        android_woodoku_driver.move_piece(
+                            phone_piece_idx,
+                            piece.size(),
+                            (px,py)
+                        )
+                        phone_sc=android_woodoku_driver.screencap()
+                        phone_b=android_woodoku_driver.get_board_state(phone_sc)
+                        if self._board == phone_b:
+                            print("Move successful")
+                            break
+                        elif self._prev_board == phone_b:
+                            print("Move failed")
+                            continue
+                        else:
+                            print("Board desyc? idk")
+                            break
+                else:
+                    print("Piece not identified...?")
+                    print("Not performing automove.")
+
 
 class Color:
     def __init__(self):

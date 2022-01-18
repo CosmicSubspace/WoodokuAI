@@ -3,6 +3,24 @@ import PIL.Image
 import PIL.ImageStat
 import woodoku_common
 import math
+'''
+Touch coord for 0,0 placement
+Bbox XxY
+5x1 310 960
+4x1 260 960
+3x3 200 1190
+3x2 200 1070
+3x1 205 960
+2x3 140 1190
+2x2 140 1075
+2x1 140 960
+1x5
+1x4 85 1310
+1x3 85 1190
+1x2 85 1080
+1x1
+
+'''
 
 def adb(*args):
     cmd("adb",*args)
@@ -24,10 +42,13 @@ def screencap():
 
     return img
 
-def swipe(origin,destination):
-    adb("shell","input","swipe"
-            ,str(origin[0]),str(origin[1])
-            ,str(destination[0]),str(destination[1]))
+def swipe(origin,destination,duration):
+    adb("shell","input","swipe",
+            str(round(origin[0])),
+            str(round(origin[1])),
+            str(round(destination[0])),
+            str(round(destination[1])),
+            str(duration))
 
 class Tuples:
     @classmethod
@@ -96,6 +117,19 @@ piece_locations=[
     (200,2100),
     (500,2100),
     (850,2100)]
+piece_placement_touchloc_3x3=(200,1190)
+piece_placement_offset_perblock=(60,110)
+def piece_placement_offset(xCells,yCells):
+    cell_delta=Tuples.sub((xCells,yCells),(3,3))
+    tl_3x3_delta=Tuples.elementwise_mult(
+        piece_placement_offset_perblock,
+        cell_delta)
+    touchloc_board00=Tuples.add(
+        piece_placement_touchloc_3x3,
+        tl_3x3_delta)
+    return Tuples.sub(
+        touchloc_board00,
+        board_00)
 
 def cellLocation(x,y):
     board_size=Tuples.sub(board_88,board_00)
@@ -162,6 +196,7 @@ def get_pieces(img):
                         ymin=y
         print("Cellcount",cellcount)
         if cellcount<10:
+            pieces.append(None)
             continue
         ysize=ymax-ymin
         xsize=xmax-xmin
@@ -220,8 +255,21 @@ def get_pieces(img):
             if dist*resize_factor<50:
             '''
 
+def move_piece(piece_index,piece_bbox,cell_coord):
+    if not (0<=piece_index<3):
+        raise ValueError("OOB index "+str(piece_index))
+    origin=piece_locations[piece_index]
+    ppo=piece_placement_offset(*piece_bbox)
+    cloc=cellLocation(*cell_coord)
+    dest=Tuples.add(cloc,ppo,(0,-20)) #overshoot a little
+    swipe(origin,dest,1000)
+
 
 if __name__=="__main__":
+    for y in range(5):
+        for x in range(5):
+            print(x,y,piece_placement_offset(x,y))
+    0/0
     sc=screencap()
     b=get_board_state(sc)
     p=get_pieces(sc)
