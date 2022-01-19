@@ -580,7 +580,7 @@ int main(){
 #ifdef SERVER_GAME
         ServerState ss;
         int waitN=0;
-        while (!wc.getServerStateUpdate(&ss)){
+        while (!wc.recvServerStateUpdate(&ss)){
             // wait for server
             printf("\rwait for server");
             waitN=(waitN+1)%10;
@@ -687,7 +687,7 @@ int main(){
         }
         cm.x=placement.x;
         cm.y=placement.y;
-        wc.commitMove(&cm);
+        wc.sendMove(&cm);
 #endif
         //printf("Enter to coninue...\n");
     }
