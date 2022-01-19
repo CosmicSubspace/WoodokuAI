@@ -3,11 +3,17 @@ CFLAGS=-O3
 
 all: woodokuAI
 
-woodokuAI: main.o piece.o game.o printutil.h
+woodokuAI: main.o piece.o game.o
 	$(CXX) -o woodokuAI main.o piece.o game.o -lpthread
 
-%.o: %.cpp
-	$(CXX) -c $< -o $@ $(CFLAGS)
+main.o: main.cpp woodoku_client.h printutil.h
+	$(CXX) -c main.cpp -o main.o $(CFLAGS)
+
+piece.o: piece.cpp
+	$(CXX) -c piece.cpp -o piece.o $(CFLAGS)
+
+game.o: game.cpp
+	$(CXX) -c game.cpp -o game.o $(CFLAGS)
 
 clean:
 	rm -f $(wildcard *.o) woodokuAI

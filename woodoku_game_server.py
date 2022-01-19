@@ -3,11 +3,13 @@
 # Packet: Server -> Client
 # [0] 0x41
 # [1..81] Board state (row-major bool array)
-# [82..106] Piece 1 Shape (row-major bool array) or zeros
-# [107..131] Piece 2
-# [132..156] Piece 3
-# [157] 0x42
-# 158 bytes
+# [82] Number of pieces (uint8)
+# [83..107] Piece 1 Shape (row-major bool array) or zeros
+# [108..132] Piece 2
+# [133..157] Piece 3
+# [158..161] Turn Index (int32, BIG-ENDIAN)
+# [162] 0x42
+# 163 bytes
 
 
 # Packet: Client -> Server
@@ -15,8 +17,11 @@
 # [1..25] Piece Shape
 # [26] Piece X location (uint8)
 # [27] Piece Y location (uint8)
-# [28] 0x23
-# 29 bytes
+# [28..31] Turn Index (int32, BIG-ENDIAN)
+# [32] Retire? (bool)
+# [33] 0x23
+# 34 bytes
+
 
 import time
 import socket
@@ -28,29 +33,45 @@ import tkinter
 from woodoku_common import *
 import android_woodoku_driver
 
-def generate_ssup(board,nexts):
+def generate_ssup(board,nexts,turnindex):
     ba=bytearray()
+
+    assert len(ba)==0
     ba.append(0x41)
+
+    assert len(ba)==1
     ba.extend(board.to_boolarray())
+
+    assert len(ba)==82
+    ba.append(len(nexts))
+
+    assert len(ba)==83
     for i in range(3):
         if i<len(nexts):
             ba.extend(nexts[i].to_boolarray())
         else:
             ba.extend(bytes([0]*25))
 
-    ba.append(0x42)
     assert len(ba)==158
+    ba.extend(turnindex.to_bytes(length=4,byteorder="big"))
+    assert len(ba)==162
+
+    ba.append(0x42)
+    assert len(ba)==163
+
     return bytes(ba)
 
 def parse_clientmove(b):
-    assert len(b)==29
-    if (b[0] != 0x22) or (b[28] != 0x23):
+    assert len(b)==34
+    if (b[0] != 0x22) or (b[33] != 0x23):
         print("Invalid magic!")
         0/0
     piece=Piece.from_boolarray(b[1:26])
     x=b[26]
     y=b[27]
-    return piece,x,y
+    turnindex=int.from_bytes(b[28:32],byteorder="big")
+    retire=b[32] != 0
+    return piece,x,y,turnindex,retire
 
 
 class GameThread(threading.Thread):
@@ -95,9 +116,10 @@ class GameThread(threading.Thread):
         self._nexts=[]
         print("Game start")
         lastTickTime=time.time()
+        turn_index=0
         while True:
-            android_connect=True
-            automove=True
+            android_connect=False
+            automove=False
             if android_connect:
                 if automove:
                     print("Sleep...")
@@ -127,7 +149,10 @@ class GameThread(threading.Thread):
                     self._nexts.append(random.choice(pieces))
 
             print("Send SSUP")
-            clientsocket.send(generate_ssup(self._board,self._nexts))
+            dat=generate_ssup(self._board,self._nexts,turn_index)
+            for i in range(len(dat)):
+                print("{} {:02x}".format(i,dat[i]))
+            clientsocket.send(dat)
 
             print("Nexts:")
             for n in self._nexts:
@@ -138,9 +163,9 @@ class GameThread(threading.Thread):
             print("Waiting on client...")
             clientdata=b''
             while True:
-                clientdata=clientsocket.recv(29)
+                clientdata=clientsocket.recv(34)
                 if not clientdata:
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                     continue
                 else:
                     break
@@ -150,7 +175,12 @@ class GameThread(threading.Thread):
                 time.sleep(0.1)
                 print("Sleep cuz its too fast")
 
-            clientpiece,px,py=parse_clientmove(clientdata)
+            clientpiece,px,py,tidx,rt=parse_clientmove(clientdata)
+            if tidx != turn_index:
+                print("TIDX mismatch!",turn_index,tidx)
+            if rt:
+                print("Retire!")
+                break
             piece=None
             for p in pieces:
                 if p==clientpiece:
@@ -224,6 +254,7 @@ class GameThread(threading.Thread):
                 else:
                     print("Piece not identified...?")
                     print("Not performing automove.")
+            turn_index+=1
 
 
 class Color:

@@ -54,7 +54,7 @@
 
 #define NUM_THREADS 4
 
-#define TARGET_MILLISEC_PER_TURN 5000
+#define TARGET_MILLISEC_PER_TURN 100
 
 uint64_t timeSinceEpochMillisec() {
   using namespace std::chrono;
@@ -546,7 +546,7 @@ int main(){
     return 0;*/
 
 #ifdef SERVER_GAME
-    WoodokuClient wc;
+    WoodokuClient wc("127.0.0.1","14311");
 #endif
 
     PieceQueue pq;
@@ -555,6 +555,8 @@ int main(){
     GameState gs;
     while (1){
         printf("\n\n\n");
+
+        uint32_t turnIndex=gs.getCurrentStepNum();
 
 #ifndef SERVER_GAME
 
@@ -613,14 +615,25 @@ int main(){
             waitForEnter();
         }
 
+        if (turnIndex != ss.turnIndex){
+            ansiColorSet(RED);
+            printf("Turn Index mismatch\n");
+            ansiColorSet(NONE);
+            printf("Local %d Server %d\n",
+                   turnIndex,ss.turnIndex);
+
+            return -1;
+
+        }
+
 
         Piece servPieces[3];
         for (int x=0;x<5;x++){
             for (int y=0;y<5;y++){
                 int idx=x+y*5;
-                if (ss.piece1[idx]) servPieces[0].addBlock(x,y);
-                if (ss.piece2[idx]) servPieces[1].addBlock(x,y);
-                if (ss.piece3[idx]) servPieces[2].addBlock(x,y);
+                for (int pidx=0;pidx<3;pidx++){
+                    if (ss.pieces[pidx][idx]) servPieces[pidx].addBlock(x,y);
+                }
             }
         }
 
@@ -638,7 +651,7 @@ int main(){
 
 
         ansiColorSet(BLUE_BRIGHT);
-        printf("   ===== Move %d =====   \n",gs.getCurrentStepNum()+1);
+        printf("   ===== Turn %d =====   \n",turnIndex);
         ansiColorSet(NONE);
 
         SearchResult sr;
@@ -653,6 +666,8 @@ int main(){
             ansiColorSet(RED);
             printf("No placement possible!\n");
             ansiColorSet(NONE);
+            printf("Sending Retire...\n");
+            wc.sendRetire(turnIndex);
             break;
         }
 
@@ -679,6 +694,7 @@ int main(){
         ansiColorSet(NONE);
 #endif
 #ifdef SERVER_GAME
+        printf("Sending Move...\n");
         ClientMove cm;
         for(int x=0;x<5;x++){
             for (int y=0;y<5;y++){
@@ -687,7 +703,7 @@ int main(){
         }
         cm.x=placement.x;
         cm.y=placement.y;
-        wc.sendMove(&cm);
+        wc.sendMove(turnIndex,&cm);
 #endif
         //printf("Enter to coninue...\n");
     }
