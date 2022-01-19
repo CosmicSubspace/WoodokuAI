@@ -50,6 +50,7 @@ void drawBoard(Board b){
 }
 
 const char* NONE="0";
+
 const char* RED="31";
 const char* RED_BRIGHT="1;31";
 const char* RED_DIM="2;31";
@@ -71,6 +72,8 @@ const char* CYAN_DIM="2;36";
 const char* WHITE="37";
 const char* WHITE_BRIGHT="1;37";
 const char* WHITE_DIM="2;37";
+
+const char* BLINK="5";
 
 void ansiColorSet(const char* colorcode){
     printf("\033[%sm",colorcode);

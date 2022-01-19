@@ -42,10 +42,10 @@
 #define MAX_RANDSEARCH_ITER 30
 #define MIN_RANDSEARCH_ITER 10
 
-#define PREVIEW_PIECES 5
+#define PREVIEW_PIECES 10
 
 // Connect to a game server.
-#define SERVER_GAME
+//#define SERVER_GAME
 
 
 // Disable board-fitness heuristic
@@ -54,7 +54,7 @@
 
 #define NUM_THREADS 4
 
-#define TARGET_MILLISEC_PER_TURN 100
+#define TARGET_MILLISEC_PER_TURN 5000
 
 uint64_t timeSinceEpochMillisec() {
   using namespace std::chrono;
@@ -251,76 +251,129 @@ struct SearchResult{
 };
 typedef struct SearchResult SearchResult;
 
+struct SearchRequest{
+    PieceQueue pq;
+    GameState gs;
+    int depth;
+    bool started;
+    bool finished;
+    DFSResult result;
+};
+typedef SearchRequest SearchRequest;
+
 std::mutex threadMtx;
 bool threadKillRequest;
 std::thread workerThreads[NUM_THREADS];
-DFSResult threadResults[MAX_RANDSEARCH_ITER];
-PieceQueue threadPQ[MAX_RANDSEARCH_ITER];
-GameState threadGameState[MAX_RANDSEARCH_ITER];
-int targetResultNum;
-int numThreadResults;
-int nextWorkIndex;
-int threadTargetDepth;
+
+SearchRequest threadData[MAX_SEARCH_DEPTH*MAX_RANDSEARCH_ITER];
+int nextWorkIdx;
+int workCount;
+int doneCount;
+
+int fordisp_completecount[MAX_SEARCH_DEPTH];
+int fordisp_workcount[MAX_SEARCH_DEPTH];
+int fordisp_inprogcount[MAX_SEARCH_DEPTH];
 
 void threadFunc();
-void initializeThreads(int depth,GameState gs,PieceQueue *pq){
+void initializeThreadData(GameState gs,PieceQueue *pq){
     threadKillRequest=false;
-    numThreadResults=0;
-    nextWorkIndex=0;
-    threadTargetDepth=depth;
-    targetResultNum=MAX_RANDSEARCH_ITER;
+    nextWorkIdx=0;
+    workCount=0;
+    doneCount=0;
+    uint32_t currentStep=gs.getCurrentStepNum();
+/*
+    printf("\nITD PQ:\n");
+    printf("CSN %d\n",gs.getCurrentStepNum());
+    drawPieceQueue(pq,gs.getCurrentStepNum(),5,5);*/
 
-    bool determined_future=true;
-    for(int ri=0;ri<MAX_RANDSEARCH_ITER;ri++){
-        PieceQueue tmpPQ=*pq;
-        uint32_t currentStep=gs.getCurrentStepNum();
-        for (int i=0;i<depth;i++){
-            if (!tmpPQ.isVisible(currentStep+i)){
-                tmpPQ.setPiece(
-                    currentStep+i,
-                    getGlobalPG()->generate());
-                determined_future=false;
+    for (int di=1;di<MAX_SEARCH_DEPTH;di++){
+        int iters=1;
+        for(int i=0;i<di;i++){
+            if (!pq->isVisible(currentStep+i)) {
+                iters=MAX_RANDSEARCH_ITER;
+                break;
             }
         }
-        threadPQ[ri]=tmpPQ;
-        threadGameState[ri]=gs;
-        if (determined_future){
-            targetResultNum=1;
-            break;
-        }
-    }
 
-    for(int i=0;i<NUM_THREADS;i++){
-        workerThreads[i]=std::thread(threadFunc);
+        fordisp_workcount[di]=iters;
+        fordisp_completecount[di]=0;
+        fordisp_inprogcount[di]=0;
+
+
+        for(int ri=0;ri<iters;ri++){
+            SearchRequest srq;
+            srq.pq=(*pq);
+/*
+            printf("SRQ ri %d LOOPSTART \n",
+                    ri);
+            printf("PQ\n");
+            drawPieceQueue(pq,currentStep,5,5);
+            printf("SRQ.PQ\n");
+            drawPieceQueue(&srq.pq,currentStep,5,5);*/
+
+            for (int i=0;i<di;i++){
+                /*
+                printf("SRQ PQ i %d di %d CS %d Vis%d \n",
+                       i,di,currentStep,
+                       srq.pq.isVisible(currentStep+i));
+                drawPieceQueue(&srq.pq,currentStep,5,5);*/
+
+                if (!srq.pq.isVisible(currentStep+i)){
+                    srq.pq.setPiece(
+                        currentStep+i,
+                        getGlobalPG()->generate());
+                }
+
+            }
+            srq.gs=gs;
+            srq.started=false;
+            srq.finished=false;
+            srq.depth=di;
+            /*
+            printf("Queueing: depth %d ri %d\n",
+                   srq.depth,ri);*/
+
+            threadData[workCount]=srq;
+            workCount++;
+        }
     }
 }
 void threadFunc(){
     while(1){
+        if (threadKillRequest) return;
+
         threadMtx.lock();
-        if (nextWorkIndex==targetResultNum){
+        if (nextWorkIdx==workCount){
              // No work left.
             threadMtx.unlock();
             return;
         }
 
-        int thisIndex=nextWorkIndex;
-        nextWorkIndex++;
-        GameState gs;
-        int depth;
-        PieceQueue *pq;
-        gs=threadGameState[thisIndex];
-        depth=threadTargetDepth;
-        pq=&(threadPQ[thisIndex]);
+
+        int thisIndex=nextWorkIdx;
+        nextWorkIdx++;
+        GameState gs=threadData[thisIndex].gs;
+        int depth=threadData[thisIndex].depth;
+        PieceQueue pq=threadData[thisIndex].pq;
+        fordisp_inprogcount[depth]++;
+        threadData[thisIndex].started=true;
         threadMtx.unlock();
 
-        DFSResult dfsr=search(gs,0,depth,gs.getScore(),pq,&threadKillRequest);
+        DFSResult dfsr=search(gs,
+                              0,
+                              depth,
+                              gs.getScore(),
+                              &pq,
+                              &threadKillRequest);
 
         threadMtx.lock();
         if (!threadKillRequest){
             assert (!dfsr.computationInterrupted);
-            int resultIndex=numThreadResults;
-            numThreadResults++;
-            threadResults[resultIndex]=dfsr;
+            threadData[thisIndex].result=dfsr;
+            threadData[thisIndex].finished=true;
+            fordisp_completecount[depth]++;
+            fordisp_inprogcount[depth]--;
+            doneCount++;
         }
         threadMtx.unlock();
     }
@@ -328,185 +381,233 @@ void threadFunc(){
 void sleepMillis(uint32_t ms){
     usleep(ms*1000);
 }
-SearchResult searchHL(GameState gs, PieceQueue *pq, int depth, uint64_t timelimit){
+SearchResult searchHL(GameState gs, PieceQueue *pq, uint64_t timelimit){
     Piece nextPiece=pq->getPiece(gs.getCurrentStepNum());
+    /*
+    printf("SHL PQ:\n");
+    printf("CSN %d\n",gs.getCurrentStepNum());
+    drawPieceQueue(pq,gs.getCurrentStepNum(),5,5);*/
 
-    Placement uniquePlacements[MAX_RANDSEARCH_ITER];
-    int numUniquePlacements=0;
-    int32_t bfSums[MAX_RANDSEARCH_ITER];
-    int32_t sdx100Sums[MAX_RANDSEARCH_ITER];
-    int uniquePlacementCount[MAX_RANDSEARCH_ITER];
-    int maxCount=0;
-    int maxIdx=-1;
-    int invalids=0;
 
-    printf("  Initializing threads...");
-    fflush(stdout);
-    initializeThreads(depth,gs,pq);
+    initializeThreadData(gs,pq);
+    for(int i=0;i<NUM_THREADS;i++){
+        workerThreads[i]=std::thread(threadFunc);
+    }
+
     while(1){
         uint64_t t=timeSinceEpochMillisec();
-        printf("\r  Completed job %d of %d",
-              numThreadResults,targetResultNum);
+        printf("\rSearching");
+
+        for (int d=1;d<MAX_SEARCH_DEPTH;d++){
+            int total=fordisp_workcount[d];
+            int complete=fordisp_completecount[d];
+            int inprog=fordisp_inprogcount[d];
+            // Not all work is done
+            if (complete != total){
+                if (inprog != 0) {
+                    //ansiColorSet(BLINK);
+                    ansiColorSet(YELLOW_BRIGHT);
+                }
+                else {
+                    ansiColorSet(WHITE_DIM);
+                }
+            }else ansiColorSet(BLUE);
+
+            printf("%2d ", d);
+
+            ansiColorSet(NONE);
+
+        }
+        /*
         int n=(t/100)%8;
         for (int i=0;i<8;i++){
             if (i<n) printf(".");
             else printf(" ");
         }
-        printf("        ");
-        fflush(stdout);
-        if (t>timelimit){
+        printf("        ");*/
+
+        if (t<timelimit){
+            printf("%5d ms",(int)(timelimit-t));
+            fflush(stdout);
+        }else{
             threadKillRequest=true;
-            printf("\r  Timeout (%d/%d)                 \n",
-                   numThreadResults,targetResultNum);
+            printf("<-  Timeout\n");
             break;
         }
-        if (numThreadResults==targetResultNum){
-            printf("\r  Work done (%d)                \n",
-                   targetResultNum);
+        if (doneCount==workCount){
+            printf("<- Work done\n");
             break;
         }
-        sleepMillis(10);
+        sleepMillis(30);
     }
 
-    printf("  Joining threads...\r");
+
     fflush(stdout);
     for(int i=0;i<NUM_THREADS;i++){
         workerThreads[i].join();
     }
 
+    SearchResult res;
+    res.isValid=false;
+    res.searchDepth=0;
 
-    for (int i=0;i<numThreadResults;i++){
-        DFSResult dfsr=threadResults[i];
-        if (dfsr.valid){
-            // sanity
-            Piece placementPiece=dfsr.bestPlacement.piece;
-            assert (placementPiece.equal(nextPiece));
-            assert(!dfsr.computationInterrupted);
-            assert(dfsr.boardFitness>-100000);
-            assert(dfsr.scoreDelta>-100000);
+    for (int di=1;di<MAX_SEARCH_DEPTH;di++){
+        Placement uniquePlacements[MAX_RANDSEARCH_ITER];
+        int numUniquePlacements=0;
+        int32_t bfSums[MAX_RANDSEARCH_ITER];
+        int32_t sdx100Sums[MAX_RANDSEARCH_ITER];
+        int uniquePlacementCount[MAX_RANDSEARCH_ITER];
+        int maxCount=0;
+        int maxIdx=-1;
+        int invalids=0;
+        int numEntries=0;
+        int numFinished=0;
+        int numStarted=0;
+
+        for (int ri=0; ri<workCount;ri++){
+            SearchRequest srq=threadData[ri];
             /*
-            printf("    DFSR[%d] X %d Y %d BF %d SD %d CI%d\n",
-                   i,
-                   dfsr.bestPlacement.x,
-                   dfsr.bestPlacement.y,
-                   dfsr.boardFitness,
-                   dfsr.scoreDelta,
-                   dfsr.computationInterrupted);*/
-            int duplicateOf=-1;
-            Placement p1=dfsr.bestPlacement;
-            for(int i=0;i<numUniquePlacements;i++){
-                Placement p2=uniquePlacements[i];
-                if ((p1.x==p2.x) && (p1.y==p2.y)){
-                    duplicateOf=i;
-                    break;
+            printf("RI %d SRQ %d\n",
+                   ri,srq.depth);*/
+            if (srq.depth != di) continue;
+
+            numEntries++;
+
+            if (srq.started) numStarted++;
+
+            if (!srq.finished) continue;
+            DFSResult dfsr=srq.result;
+            numFinished++;
+            if (dfsr.valid){
+                // sanity
+                Piece placementPiece=dfsr.bestPlacement.piece;
+                if (!placementPiece.equal(nextPiece)){
+                    printf("Piece mismatch!\n");
+                    drawPiece(placementPiece);
+                    printf("----\n");
+                    drawPiece(nextPiece);
                 }
-            }
-            if (duplicateOf==-1){
-                uniquePlacements[numUniquePlacements]=p1;
-                uniquePlacementCount[numUniquePlacements]=0;
-                bfSums[numUniquePlacements]=0;
-                sdx100Sums[numUniquePlacements]=0;
-                duplicateOf=numUniquePlacements;
-                numUniquePlacements++;
-            }
-            uniquePlacementCount[duplicateOf]++;
-            bfSums[duplicateOf]+=dfsr.boardFitness;
-            sdx100Sums[duplicateOf]+=dfsr.scoreDelta*100;
-            if (uniquePlacementCount[duplicateOf]>maxCount){
-                maxCount=uniquePlacementCount[duplicateOf];
-                maxIdx=duplicateOf;
-            }
-        }else{
-            //printf("    DFSR[%d] invalid\n",i);
-            invalids++;
-        }
-    }
-
-    bool sufficientIterations=(numThreadResults>=targetResultNum) || (numThreadResults>=MIN_RANDSEARCH_ITER);
-
-    SearchResult sr;
-    sr.searchDepth=depth;
-    if (sufficientIterations){
-        printf("  Result");
-        for(int i=0;i<numUniquePlacements;i++){
-            if (i!=maxIdx) continue;
-            Placement pl=uniquePlacements[i];
-            int count=uniquePlacementCount[i];
-            int percentage=count*100/numThreadResults;
-            int32_t bfAvg=bfSums[i]/count;
-            int32_t sdx100Avg=sdx100Sums[i]/count;
-            printf(" | X%d Y%d BFavg %d SDavg %.2f",
-                pl.x,pl.y,
-                bfAvg,sdx100Avg/100.0);
-            if (numThreadResults==1) {
-                ansiColorSet(GREEN_DIM);
-                printf(" (Determined)");
-                ansiColorSet(NONE);
+                assert (placementPiece.equal(nextPiece));
+                assert(!dfsr.computationInterrupted);
+                assert(dfsr.boardFitness>-100000);
+                assert(dfsr.scoreDelta>-100000);
+                /*
+                printf("    DFSR[%d] X %d Y %d BF %d SD %d CI%d\n",
+                    i,
+                    dfsr.bestPlacement.x,
+                    dfsr.bestPlacement.y,
+                    dfsr.boardFitness,
+                    dfsr.scoreDelta,
+                    dfsr.computationInterrupted);*/
+                int duplicateOf=-1;
+                Placement p1=dfsr.bestPlacement;
+                for(int i=0;i<numUniquePlacements;i++){
+                    Placement p2=uniquePlacements[i];
+                    if ((p1.x==p2.x) && (p1.y==p2.y)){
+                        duplicateOf=i;
+                        break;
+                    }
+                }
+                if (duplicateOf==-1){
+                    uniquePlacements[numUniquePlacements]=p1;
+                    uniquePlacementCount[numUniquePlacements]=0;
+                    bfSums[numUniquePlacements]=0;
+                    sdx100Sums[numUniquePlacements]=0;
+                    duplicateOf=numUniquePlacements;
+                    numUniquePlacements++;
+                }
+                uniquePlacementCount[duplicateOf]++;
+                bfSums[duplicateOf]+=dfsr.boardFitness;
+                sdx100Sums[duplicateOf]+=dfsr.scoreDelta*100;
+                if (uniquePlacementCount[duplicateOf]>maxCount){
+                    maxCount=uniquePlacementCount[duplicateOf];
+                    maxIdx=duplicateOf;
+                }
             }else{
-                if (percentage>70) ansiColorSet(GREEN_BRIGHT);
-                else if (percentage>30) ansiColorSet(YELLOW_BRIGHT);
-                else ansiColorSet(MAGENTA_BRIGHT);
-                printf(" (%d/%d = %d%%) ",
-                    count,numThreadResults,
-                    percentage
-                    );
+                //printf("    DFSR[%d] invalid\n",i);
+                invalids++;
+            }
+        }
+
+        bool sufficientIterations=(numFinished>=numEntries) || (numFinished>=MIN_RANDSEARCH_ITER);
+
+        SearchResult sr;
+        sr.searchDepth=di;
+        sr.isValid=false;
+
+        if (sufficientIterations){
+            printf("  Depth %2d | %2d/%2d",
+                di,numFinished,numEntries);
+            for(int i=0;i<numUniquePlacements;i++){
+                if (i!=maxIdx) continue;
+                Placement pl=uniquePlacements[i];
+                int count=uniquePlacementCount[i];
+                int percentage=count*100/numFinished;
+                int32_t bfAvg=bfSums[i]/count;
+                int32_t sdx100Avg=sdx100Sums[i]/count;
+                printf(" | X%2d Y%2d BFavg %4d SDavg %6.2f",
+                    pl.x,pl.y,
+                    bfAvg,sdx100Avg/100.0);
+                if (numEntries==1) {
+                    ansiColorSet(GREEN_DIM);
+                    printf(" (Determined)");
+                    ansiColorSet(NONE);
+                }else{
+                    if (percentage>70) ansiColorSet(GREEN_BRIGHT);
+                    else if (percentage>30) ansiColorSet(YELLOW_BRIGHT);
+                    else ansiColorSet(MAGENTA_BRIGHT);
+                    printf(" (%2d/%2d = %3d%%) ",
+                        count,numFinished,
+                        percentage
+                        );
+                    ansiColorSet(NONE);
+                }
+                /*
+                if (uniquePlacementCount[i]==maxCount) printf(" *");
+                if (i==maxIdx) printf(" <<");
+                printf("\n");*/
+            }
+            if (invalids>0){
+                ansiColorSet(RED_BRIGHT);
+                printf(" | Invalid:%2d (%3d%%)",
+                    invalids,
+                    invalids*100/numFinished);
                 ansiColorSet(NONE);
             }
-            /*
-            if (uniquePlacementCount[i]==maxCount) printf(" *");
-            if (i==maxIdx) printf(" <<");
-            printf("\n");*/
-        }
-        if (invalids>0){
-            ansiColorSet(RED_BRIGHT);
-            printf(" | Invalid:%d (%d%%)",
-                   invalids,
-                   invalids*100/numThreadResults);
+            printf("\n");
+
+            if (maxIdx==-1){
+                // No results
+                sr.isValid=false;
+
+            }else {
+                sr.isValid=true;
+                sr.optimalPlacement=uniquePlacements[maxIdx];
+            }
+
+        }else if (numStarted>0){
+            ansiColorSet(WHITE_DIM);
+            printf("  Depth %2d | %2d/%2d (Insufficient)",
+                di,numFinished,numEntries);
             ansiColorSet(NONE);
-        }
-        printf("\n");
-
-        if (maxIdx==-1){
-            // No results
+            printf("\n");
             sr.isValid=false;
-
-        }else {
-            sr.isValid=true;
-            sr.optimalPlacement=uniquePlacements[maxIdx];
+        }else{
+            //just don't do anything
         }
 
-    }else{
-        printf("  Insufficient iterations, ignoring...\n");
-        sr.isValid=false;
+        if (sr.isValid) res=sr;
+
     }
 
 
 
 
 
-    return sr;
+    return res;
 }
 
-SearchResult dynamicDepthSearch(GameState gs, PieceQueue *pq, uint64_t maxMillis){
-    uint64_t timelimit=timeSinceEpochMillisec()+maxMillis;
 
-    SearchResult searchres[MAX_SEARCH_DEPTH];
-    SearchResult finalResult;
-    finalResult.isValid=false;
-    finalResult.searchDepth=0;
-    int depth=1;
-    while (depth<MAX_SEARCH_DEPTH){
-        if (timeSinceEpochMillisec()>timelimit) break;
-        printf("Searching depth %d\n",depth);
-        SearchResult sr=searchHL(gs,pq,depth,timelimit);
-        searchres[depth]=sr;
-        if (sr.isValid) finalResult=sr;
-        depth++;
-    }
-
-    return finalResult;
-
-}
 
 int main(){
 
@@ -577,7 +678,7 @@ int main(){
         }
 
         // Constant forward queue
-        //while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pgen->generate());
+        while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pgen->generate());
 #endif
 #ifdef SERVER_GAME
         ServerState ss;
@@ -655,7 +756,7 @@ int main(){
         ansiColorSet(NONE);
 
         SearchResult sr;
-        sr=dynamicDepthSearch(gs,&pq,TARGET_MILLISEC_PER_TURN);
+        sr=searchHL(gs,&pq,timeSinceEpochMillisec()+TARGET_MILLISEC_PER_TURN);
         printf("Taking result from depth %d\n",sr.searchDepth);
         drawPieceQueue(&pq,gs.getCurrentStepNum(),PREVIEW_PIECES,sr.searchDepth);
 
@@ -666,8 +767,10 @@ int main(){
             ansiColorSet(RED);
             printf("No placement possible!\n");
             ansiColorSet(NONE);
+#ifdef SERVER_GAME
             printf("Sending Retire...\n");
             wc.sendRetire(turnIndex);
+#endif
             break;
         }
 

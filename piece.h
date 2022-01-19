@@ -44,7 +44,6 @@ PieceGenerator* getGlobalPG();
 class PieceQueue{
 private:
     uint32_t baseIndex;
-    uint32_t hiddenStart;
     Piece pieces[PIECEQUEUE_SIZE];
     int queue_size;
 public:
