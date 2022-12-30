@@ -1,3 +1,4 @@
+// C Libraries
 #include "stdio.h"
 #include "stdlib.h"
 #include "stdint.h"
@@ -5,63 +6,118 @@
 #include "assert.h"
 #include "limits.h"
 #include "time.h"
+#include "getopt.h"
 
+// C++ Libraries
 #include <thread>
 #include <iostream>
 #include <chrono>
 #include <mutex>
 
+// Local includes
 #include "piece.h"
 #include "printutil.h"
 #include "game.h"
 #include "woodoku_client.h"
 
-
-// Crucial constant, determines the DFS search depth
-// Has very heavy impact on speed and smartness.
-// set to 0 for dynamic search depth adjustment.
-#define CONSTANT_SEARCH_DEPTH 0
-
-// Dynamic depth parameters.
-// The program will go for an additional DFS level
-// If the current DFS took less than ADDITIONAL_DEPTH_THRESH milliseconds.
-#define MAX_SEARCH_DEPTH 10
-#define ADDITIONAL_DEPTH_THRESH 100
-
-// Maximum game length. 0 for unlimited.
-#define MAX_GAME_STEPS 0
-
 // A lot of code assumes 9x9 board size implicitly.
 // You should probably leave this alone.
 #define BOARD_SIZE 9
 
-// Use constant seed. Useful for performance measurement.
-// Use 0 to disable.
-#define CONSTANT_SEED 0
 
-#define MAX_RANDSEARCH_ITER 30
-#define MIN_RANDSEARCH_ITER 10
+// Options
+int optNumThreads=8;
+int optSeed=0;
+int optMaxSearchDepth=10;
+int optRandsearchMax=30;
+int optRanddearchMin=10;
+int optStopAfterSteps=0;
+int optMsPerTurn=3000;
+bool optServerGame=false;
+bool optDisableBoardFitness=false;
+bool optDeterministic=false;
+int optPreviewPieces=5;
+std::string helpString="\
+WoodokuAI\n\
+\n\
+-h --help Show help\n\
+\n\
+Tweakable values\n\
+--thread N Number of threads (default 8)\n\
+--seed N manually set seed, 0 to randomize (default 0)\n\
+--search-depth N Max search depth (default 10)\n\
+--randsearch-max N Max randsearch iterations (default 30) \n\
+--randsearch-min N Min randsearch iterations (default 10) \n\
+--stop-after-steps N 0 to keep going forever (default 0)\n\
+--millisec-per-turn N (default 3000) \n\
+\n\
+Flags \n\
+--server-game Connect to a server \n\
+--disable-board-fitness Disable board fitness heuristic. \n\
+--deterministic Makes all pieces visible. Not game-accurate.\n\
+\n\
+Visuals \n\
+--preview-pieces N Number of pieces to preview. Visual only. (default 5)";
 
-#define PREVIEW_PIECES 10
+struct option longopts[]={
+    {"help",                    no_argument,NULL,401},
+    {"thread",            required_argument,NULL,501},
+    {"seed",              required_argument,NULL,502},
+    {"search-depth",      required_argument,NULL,503},
+    {"randsearch-max",    required_argument,NULL,504},
+    {"randsearch-min",    required_argument,NULL,505},
+    {"stop-after-steps",  required_argument,NULL,506},
+    {"millisec-per-turn", required_argument,NULL,507},
+    {"server-game",             no_argument,NULL,601},
+    {"disable-board-fitness",   no_argument,NULL,602},
+    {"deterministic",           no_argument,NULL,603},
+    {"preview-pieces",    required_argument,NULL,701}
+};
+void parse_options(int argc, char** argv){
+    while(1){
+        int opt=getopt_long(argc,argv,"h",longopts,NULL);
+        switch (opt){
+            case '?': exit(-1); break;
+            case 'h':case 401:
+                  printf("%s",helpString.c_str());
+                  exit(0);                            break;
+            case 501: optNumThreads=atoi(optarg);     break;
+            case 502: optSeed=atoi(optarg);           break;
+            case 503: optMaxSearchDepth=atoi(optarg);    break;
+            case 504: optRandsearchMax=atoi(optarg);  break;
+            case 505: optRanddearchMin=atoi(optarg);  break;
+            case 506: optStopAfterSteps=atoi(optarg); break;
+            case 507: optMsPerTurn=atoi(optarg);      break;
+            case 601: optServerGame=true;             break;
+            case 602: optDisableBoardFitness=true;    break;
+            case 603: optDeterministic=true;          break;
+            case 701: optPreviewPieces=atoi(optarg);  break;
+        }
 
-// Connect to a game server.
-//#define SERVER_GAME
+        if (opt==-1) break;
+    }
 
 
-// Disable board-fitness heuristic
-//#define DISABLE_BOARD_FITNESS_HEURISTIC
+    printf("#Threads: %d\n",optNumThreads);
+    printf("Seed: %d\n",optSeed);
+    printf("Search Depth: %d\n",optMaxSearchDepth);
+    printf("RandSearch Max: %d\n",optRandsearchMax);
+    printf("RandSearch Min: %d\n",optRanddearchMin);
+    printf("Stop after: %d\n",optStopAfterSteps);
+    printf("ms per turn: %d\n",optMsPerTurn);
+    printf("Server game: %c\n",optServerGame?'Y':'N');
+    printf("Disable Board Fitness: %c\n",optDisableBoardFitness?'Y':'N');
+    printf("Deterministic: %c\n",optDeterministic?'Y':'N');
+    printf("Preview Pieces: %d\n",optPreviewPieces);
 
-
-#define NUM_THREADS 4
-
-#define TARGET_MILLISEC_PER_TURN 5000
+}
 
 uint64_t timeSinceEpochMillisec() {
   using namespace std::chrono;
   return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
 }
 
-#ifndef DISABLE_BOARD_FITNESS_HEURISTIC
+
 Board floodFillBoard(Board b, Vec2u8 start){
     Board boundary;
     Board fillResult;
@@ -127,6 +183,7 @@ int calculateIslandness(Board b){
 }
 
 int calculateBoardFitness(Board b){
+    if (optDisableBoardFitness) return 0;
     Board negboard=b.bitwiseNOT();
     int islandnessP=calculateIslandness(b);
     int islandnessN=calculateIslandness(negboard);
@@ -135,12 +192,7 @@ int calculateBoardFitness(Board b){
     //return emptycells;
     //return -(islandnessN)+emptycells*10;
 }
-#endif
-#ifdef DISABLE_BOARD_FITNESS_HEURISTIC
-int calculateBoardFitness(Board b){
-    return 0;
-}
-#endif
+
 struct DFSResult{
     Placement bestPlacement;
     int32_t boardFitness;
@@ -263,16 +315,24 @@ typedef SearchRequest SearchRequest;
 
 std::mutex threadMtx;
 bool threadKillRequest;
-std::thread workerThreads[NUM_THREADS];
+std::thread *workerThreads;
 
-SearchRequest threadData[MAX_SEARCH_DEPTH*MAX_RANDSEARCH_ITER];
+SearchRequest *threadData;
 int nextWorkIdx;
 int workCount;
 int doneCount;
 
-int fordisp_completecount[MAX_SEARCH_DEPTH];
-int fordisp_workcount[MAX_SEARCH_DEPTH];
-int fordisp_inprogcount[MAX_SEARCH_DEPTH];
+int *fordisp_completecount;
+int *fordisp_workcount;
+int *fordisp_inprogcount;
+
+void allocateArrays(){
+    workerThreads=new std::thread[optNumThreads];
+    threadData=new SearchRequest[optMaxSearchDepth*optRandsearchMax];
+    fordisp_completecount=new int[optMaxSearchDepth];
+    fordisp_workcount=new int[optMaxSearchDepth];
+    fordisp_inprogcount=new int[optMaxSearchDepth];
+}
 
 void threadFunc();
 void initializeThreadData(GameState gs,PieceQueue *pq){
@@ -286,11 +346,11 @@ void initializeThreadData(GameState gs,PieceQueue *pq){
     printf("CSN %d\n",gs.getCurrentStepNum());
     drawPieceQueue(pq,gs.getCurrentStepNum(),5,5);*/
 
-    for (int di=1;di<MAX_SEARCH_DEPTH;di++){
+    for (int di=1;di<optMaxSearchDepth;di++){
         int iters=1;
         for(int i=0;i<di;i++){
             if (!pq->isVisible(currentStep+i)) {
-                iters=MAX_RANDSEARCH_ITER;
+                iters=optRandsearchMax;
                 break;
             }
         }
@@ -390,7 +450,7 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, uint64_t timelimit){
 
 
     initializeThreadData(gs,pq);
-    for(int i=0;i<NUM_THREADS;i++){
+    for(int i=0;i<optNumThreads;i++){
         workerThreads[i]=std::thread(threadFunc);
     }
 
@@ -398,7 +458,7 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, uint64_t timelimit){
         uint64_t t=timeSinceEpochMillisec();
         printf("\rSearching");
 
-        for (int d=1;d<MAX_SEARCH_DEPTH;d++){
+        for (int d=1;d<optMaxSearchDepth;d++){
             int total=fordisp_workcount[d];
             int complete=fordisp_completecount[d];
             int inprog=fordisp_inprogcount[d];
@@ -443,7 +503,7 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, uint64_t timelimit){
 
 
     fflush(stdout);
-    for(int i=0;i<NUM_THREADS;i++){
+    for(int i=0;i<optNumThreads;i++){
         workerThreads[i].join();
     }
 
@@ -451,12 +511,12 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, uint64_t timelimit){
     res.isValid=false;
     res.searchDepth=0;
 
-    for (int di=1;di<MAX_SEARCH_DEPTH;di++){
-        Placement uniquePlacements[MAX_RANDSEARCH_ITER];
+    for (int di=1;di<optMaxSearchDepth;di++){
+        Placement uniquePlacements[optRandsearchMax];
         int numUniquePlacements=0;
-        int32_t bfSums[MAX_RANDSEARCH_ITER];
-        int32_t sdx100Sums[MAX_RANDSEARCH_ITER];
-        int uniquePlacementCount[MAX_RANDSEARCH_ITER];
+        int32_t bfSums[optRandsearchMax];
+        int32_t sdx100Sums[optRandsearchMax];
+        int uniquePlacementCount[optRandsearchMax];
         int maxCount=0;
         int maxIdx=-1;
         int invalids=0;
@@ -529,7 +589,7 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, uint64_t timelimit){
             }
         }
 
-        bool sufficientIterations=(numFinished>=numEntries) || (numFinished>=MIN_RANDSEARCH_ITER);
+        bool sufficientIterations=(numFinished>=numEntries) || (numFinished>=optRanddearchMin);
 
         SearchResult sr;
         sr.searchDepth=di;
@@ -609,9 +669,11 @@ SearchResult searchHL(GameState gs, PieceQueue *pq, uint64_t timelimit){
 
 
 
-int main(){
+int main(int argc, char **argv){
+    parse_options(argc,argv);
+    allocateArrays();
 
-    if (CONSTANT_SEED) srand(CONSTANT_SEED);
+    if (optSeed) srand(optSeed);
     else srand(time(nullptr));
     /*
     Board tb1,tb2;
@@ -646,9 +708,11 @@ int main(){
 
     return 0;*/
 
-#ifdef SERVER_GAME
-    WoodokuClient wc("127.0.0.1","14311");
-#endif
+    WoodokuClient *wc;
+    if (optServerGame){
+        wc= new WoodokuClient("127.0.0.1","14311");
+    }
+
 
     PieceQueue pq;
     PieceGenerator *pgen=getGlobalPG();
@@ -659,94 +723,96 @@ int main(){
 
         uint32_t turnIndex=gs.getCurrentStepNum();
 
-#ifndef SERVER_GAME
+        if (!optServerGame){
 
-        if (MAX_GAME_STEPS){
-            if (gs.getCurrentStepNum() >= MAX_GAME_STEPS){
+            if (optStopAfterSteps){
+                if (gs.getCurrentStepNum() >= optStopAfterSteps){
+                    ansiColorSet(RED);
+                    printf("Maximum game length reached!\n");
+                    ansiColorSet(NONE);
+                    break;
+                }
+            }
+
+            if (!optDeterministic){
+                // Mimics the game
+                if (!pq.isVisible(gs.getCurrentStepNum())) {
+                    pq.addPiece(pgen->generate());
+                    pq.addPiece(pgen->generate());
+                    pq.addPiece(pgen->generate());
+                }
+            }else{
+                // Constant forward queue
+                while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pgen->generate());
+            }
+
+        }else{
+            ServerState ss;
+            int waitN=0;
+            while (!wc->recvServerStateUpdate(&ss)){
+                // wait for server
+                printf("\rwait for server");
+                waitN=(waitN+1)%10;
+                for (int i=0;i<10;i++){
+                    if (i<waitN) printf(".");
+                    else printf(" ");
+                }
+                fflush(stdout);
+                usleep(100*1000);
+            }
+            printf("\n");
+            bool mismatched=false;
+            Board serverBoard;
+            for(int y=0;y<BOARD_SIZE;y++){
+                for (int x=0;x<BOARD_SIZE;x++){
+                    bool boardcell=ss.boardState[x+y*BOARD_SIZE];
+                    serverBoard.write(x,y,boardcell);
+                }
+            }
+
+            if (!serverBoard.equal(gs.getBoard())){
                 ansiColorSet(RED);
-                printf("Maximum game length reached!\n");
+                printf("Board mismatch\n");
                 ansiColorSet(NONE);
-                break;
+                printf("Overridden board:\n");
+                gs.setBoard(serverBoard);
+                drawBoard(gs.getBoard());
+
+                printf("Press Enter to continue.\n");
+                waitForEnter();
             }
-        }
 
-        // Mimics the game
-        if (!pq.isVisible(gs.getCurrentStepNum())) {
-            pq.addPiece(pgen->generate());
-            pq.addPiece(pgen->generate());
-            pq.addPiece(pgen->generate());
-        }
+            if (turnIndex != ss.turnIndex){
+                ansiColorSet(RED);
+                printf("Turn Index mismatch\n");
+                ansiColorSet(NONE);
+                printf("Local %d Server %d\n",
+                    turnIndex,ss.turnIndex);
 
-        // Constant forward queue
-        while(!pq.isVisible(gs.getCurrentStepNum()+15)) pq.addPiece(pgen->generate());
-#endif
-#ifdef SERVER_GAME
-        ServerState ss;
-        int waitN=0;
-        while (!wc.recvServerStateUpdate(&ss)){
-            // wait for server
-            printf("\rwait for server");
-            waitN=(waitN+1)%10;
-            for (int i=0;i<10;i++){
-                if (i<waitN) printf(".");
-                else printf(" ");
+                return -1;
+
             }
-            fflush(stdout);
-            usleep(100*1000);
-        }
-        printf("\n");
-        bool mismatched=false;
-        Board serverBoard;
-        for(int y=0;y<BOARD_SIZE;y++){
-            for (int x=0;x<BOARD_SIZE;x++){
-                bool boardcell=ss.boardState[x+y*BOARD_SIZE];
-                serverBoard.write(x,y,boardcell);
+
+
+            Piece servPieces[3];
+            for (int x=0;x<5;x++){
+                for (int y=0;y<5;y++){
+                    int idx=x+y*5;
+                    for (int pidx=0;pidx<3;pidx++){
+                        if (ss.pieces[pidx][idx]) servPieces[pidx].addBlock(x,y);
+                    }
+                }
             }
-        }
-
-        if (!serverBoard.equal(gs.getBoard())){
-            ansiColorSet(RED);
-            printf("Board mismatch\n");
-            ansiColorSet(NONE);
-            printf("Overridden board:\n");
-            gs.setBoard(serverBoard);
-            drawBoard(gs.getBoard());
-
-            printf("Press Enter to continue.\n");
-            waitForEnter();
-        }
-
-        if (turnIndex != ss.turnIndex){
-            ansiColorSet(RED);
-            printf("Turn Index mismatch\n");
-            ansiColorSet(NONE);
-            printf("Local %d Server %d\n",
-                   turnIndex,ss.turnIndex);
-
-            return -1;
-
-        }
 
 
-        Piece servPieces[3];
-        for (int x=0;x<5;x++){
-            for (int y=0;y<5;y++){
-                int idx=x+y*5;
-                for (int pidx=0;pidx<3;pidx++){
-                    if (ss.pieces[pidx][idx]) servPieces[pidx].addBlock(x,y);
+
+            for (int i=0;i<3;i++){
+                if (servPieces[i].numBlocks()>0){
+                    pq.setPiece(gs.getCurrentStepNum()+i,
+                                servPieces[i]);
                 }
             }
         }
-
-
-
-        for (int i=0;i<3;i++){
-            if (servPieces[i].numBlocks()>0){
-                pq.setPiece(gs.getCurrentStepNum()+i,
-                            servPieces[i]);
-            }
-        }
-#endif
         pq.rebase(gs.getCurrentStepNum());
 
 
@@ -756,9 +822,9 @@ int main(){
         ansiColorSet(NONE);
 
         SearchResult sr;
-        sr=searchHL(gs,&pq,timeSinceEpochMillisec()+TARGET_MILLISEC_PER_TURN);
+        sr=searchHL(gs,&pq,timeSinceEpochMillisec()+optMsPerTurn);
         printf("Taking result from depth %d\n",sr.searchDepth);
-        drawPieceQueue(&pq,gs.getCurrentStepNum(),PREVIEW_PIECES,sr.searchDepth);
+        drawPieceQueue(&pq,gs.getCurrentStepNum(),optPreviewPieces,sr.searchDepth);
 
         PlacementResult pr;
         Placement placement;
@@ -767,10 +833,10 @@ int main(){
             ansiColorSet(RED);
             printf("No placement possible!\n");
             ansiColorSet(NONE);
-#ifdef SERVER_GAME
-            printf("Sending Retire...\n");
-            wc.sendRetire(turnIndex);
-#endif
+            if (optServerGame){
+                printf("Sending Retire...\n");
+                wc->sendRetire(turnIndex);
+            }
             break;
         }
 
@@ -784,30 +850,31 @@ int main(){
         drawBoardFancy(lastBoard,pr.preClear,pr.finalResult);
 
         lastBoard=pr.finalResult;
-#ifndef DISABLE_BOARD_FITNESS_HEURISTIC
-        ansiColorSet(WHITE_DIM);
-        printf("islandnessP %d\n",
-               calculateIslandness(pr.finalResult));
-        printf("islandnessN %d\n",
-               calculateIslandness(pr.finalResult.bitwiseNOT()));
-        printf("cell# %d\n",
-               pr.finalResult.bitwiseNOT().countCells());
-        printf("Fitness %d\n",
-               calculateBoardFitness(pr.finalResult));
-        ansiColorSet(NONE);
-#endif
-#ifdef SERVER_GAME
-        printf("Sending Move...\n");
-        ClientMove cm;
-        for(int x=0;x<5;x++){
-            for (int y=0;y<5;y++){
-                cm.shape[x+y*5]=placement.piece.hasBlockAt(x,y);
-            }
+        if (!optDisableBoardFitness){
+            ansiColorSet(WHITE_DIM);
+            printf("islandnessP %d\n",
+                calculateIslandness(pr.finalResult));
+            printf("islandnessN %d\n",
+                calculateIslandness(pr.finalResult.bitwiseNOT()));
+            printf("cell# %d\n",
+                pr.finalResult.bitwiseNOT().countCells());
+            printf("Fitness %d\n",
+                calculateBoardFitness(pr.finalResult));
+            ansiColorSet(NONE);
         }
-        cm.x=placement.x;
-        cm.y=placement.y;
-        wc.sendMove(turnIndex,&cm);
-#endif
+        if (optServerGame){
+
+            printf("Sending Move...\n");
+            ClientMove cm;
+            for(int x=0;x<5;x++){
+                for (int y=0;y<5;y++){
+                    cm.shape[x+y*5]=placement.piece.hasBlockAt(x,y);
+                }
+            }
+            cm.x=placement.x;
+            cm.y=placement.y;
+            wc->sendMove(turnIndex,&cm);
+        }
         //printf("Enter to coninue...\n");
     }
 
