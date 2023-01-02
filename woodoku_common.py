@@ -54,7 +54,8 @@ class Piece:
                     s+="[]"
                 else:
                     s+="  "
-            s+="\n"
+            if y!=4:
+                s+="\n"
         return s
 
 with open("piecedefs.txt","r") as f:
@@ -83,8 +84,8 @@ for g in groups:
         y+=1
     pieces.append(p)
 
-for p in pieces:
-    print(p)
+#for p in pieces:
+#    print(p)
 
 class Board:
     def __init__(self):

@@ -29,9 +29,28 @@ import sys
 import random
 import threading
 import tkinter
+import argparse
 
 from woodoku_common import *
-import android_woodoku_driver
+
+
+ap=argparse.ArgumentParser()
+ap.add_argument("--android-connect",
+                help="Connect to an android phone via ADB.",
+                action="store_true")
+ap.add_argument("--manual-move",
+                help="Do not send touch events to phone via ADB, do it manually instead.",
+                action="store_true")
+ap.add_argument("-p","--port",
+                help="Server port",
+                default=21991)
+ap.add_argument("--no-window",
+                help="Do not open a game window",
+                action="store_true")
+pargs=ap.parse_args()
+
+if pargs.android_connect:
+    import android_woodoku_driver
 
 def generate_ssup(board,nexts,turnindex):
     ba=bytearray()
@@ -95,7 +114,10 @@ class GameThread(threading.Thread):
         return self._nexts
     def run(self):
         print("Thread started")
-        serversocket=socket.create_server(("127.0.0.1",14311))
+        serv_ap=("",int(pargs.port))
+        print(serv_ap)
+        print("Waiting for client connect...")
+        serversocket=socket.create_server(serv_ap)
         serversocket.listen(1)
         (clientsocket, address) = serversocket.accept()
         print("Socket opened.")
@@ -118,14 +140,17 @@ class GameThread(threading.Thread):
         lastTickTime=time.time()
         turn_index=0
         while True:
-            android_connect=False
-            automove=False
+            print("\n\n === Turn",turn_index,"===")
+
+            android_connect=pargs.android_connect
+            automove=not pargs.manual_move
             if android_connect:
                 if automove:
                     print("Sleep...")
                     time.sleep(1)
                 else:
                     input("Enter to read state from phone...")
+                print("Capturing phone...")
                 phone_sc=android_woodoku_driver.screencap()
                 phone_b=android_woodoku_driver.get_board_state(phone_sc)
                 phone_p=android_woodoku_driver.get_pieces(phone_sc)
@@ -141,35 +166,52 @@ class GameThread(threading.Thread):
                 self._nexts_raw=phone_p
                 print("Got state from phone")
 
-            print("\n\n")
+
             if len(self._nexts)==0:
                 if android_connect:
                     0/0
                 while len(self._nexts)<3:
                     self._nexts.append(random.choice(pieces))
 
-            print("Send SSUP")
-            dat=generate_ssup(self._board,self._nexts,turn_index)
-            for i in range(len(dat)):
-                print("{} {:02x}".format(i,dat[i]))
-            clientsocket.send(dat)
-
             print("Nexts:")
+            nxs=[""]*5
             for n in self._nexts:
-                print(str(n))
+                lines=str(n).split("\n")
+                for l in range(len(lines)):
+                    nxs[l]+=lines[l]+" "
+            print("\n".join(nxs))
+
             print("Board:")
             print(self._board)
 
-            print("Waiting on client...")
+            print("Sending data to client")
+            dat=generate_ssup(self._board,self._nexts,turn_index)
+            #print("Send:",dat)
+            for i in range(len(dat)):
+                pass#print("{} {:02x}".format(i,dat[i]))
+            clientsocket.send(dat)
+
+
+
             clientdata=b''
+            waitcount=0
             while True:
-                clientdata=clientsocket.recv(34)
-                if not clientdata:
+                try:
+                    clientdata+=clientsocket.recv(34,socket.MSG_DONTWAIT)
+                except BlockingIOError:
+                    pass
+                if len(clientdata)<34:
+                    waitcount+=1
+                    dots=waitcount%10
+                    #print("wait...")
+                    print("\rWaiting on client"+"."*dots+" "*(10-dots),
+                          end='',flush=True)
                     time.sleep(0.1)
                     continue
                 else:
                     break
-            print("Recv:",clientdata)
+            #print("Recv:",clientdata)
+            print("\rReceived data from client")
 
             while time.time()<lastTickTime+1:
                 time.sleep(0.1)
@@ -191,7 +233,7 @@ class GameThread(threading.Thread):
                 0/0
             self._nexts.remove(piece)
 
-            print(piece,px,py)
+            print(piece,"@ X",px,"Y",py)
             self._prev_board=self._board.clone()
             for lx,ly in piece.coords():
                 x=lx+px
@@ -199,7 +241,7 @@ class GameThread(threading.Thread):
                 if self._board.read(x,y):
                     print("Invalid placement!")
                     0/0
-                print("Write to board:",x,y)
+                #print("Write to board:",x,y)
                 self._board.write(x,y,True)
 
             clear_x=[True]*9
@@ -214,9 +256,9 @@ class GameThread(threading.Thread):
                         clear_y[y]=False
                         clear_c[c]=False
             self._preclear_board=self._board.clone()
-            print(clear_x)
-            print(clear_y)
-            print(clear_c)
+            #print(clear_x)
+            #print(clear_y)
+            #print(clear_c)
 
             for x in range(9):
                 for y in range(9):
@@ -352,63 +394,64 @@ class CellGrid(tkinter.Frame):
 gt=GameThread()
 gt.start()
 
+if not pargs.no_window:
 
-tkroot=tkinter.Tk()
-tkroot.configure(background="#000000")
+    tkroot=tkinter.Tk()
+    tkroot.configure(background="#000000")
 
-next_display=[]
-for i in range(3):
-    cg=CellGrid(tkroot,5,5)
-    cg.grid(column=i,row=1)
-    next_display.append(cg)
-
-board_display=CellGrid(tkroot,9,9)
-board_display.grid(column=1,columnspan=3,row=2)
-
-def peroidic():
-    board_current=gt.board
-    board_prev=gt.prev_board
-    board_preclear=gt.preclear_board
-    for x in range(9):
-        for y in range(9):
-            clr=None
-
-            current=board_current.read(x,y)
-            prev=board_prev.read(x,y)
-            preclear=board_preclear.read(x,y)
-            state=(prev,preclear,current)
-            if state==(True,True,True):
-                # Untouched on
-                clr=Color.from_RGBf(0.6,0.6,0.6)
-            elif state==(True,True,False):
-                # Cleared
-                clr=Color.from_RGBf(0.8,0.5,0.5)
-            elif state==(False,True,True):
-                # Newly placed
-                clr=Color.from_RGBf(1.0,1.0,1.0)
-            elif state==(False,True,False):
-                # Placed then cleared
-                clr=Color.from_RGBf(1.0,0.9,0.9)
-            elif state==(False,False,False):
-                # Untouched off
-                clr=Color.from_RGBf(0.2,0.2,0.2)
-            else:
-                #Error? threading shenanigans
-                clr=Color.from_RGBf(1.0,0,0)
-            board_display.set_color(x,y,clr)
+    next_display=[]
     for i in range(3):
-        for x in range(5):
-            for y in range(5):
-                clr=Color.from_RGBf(0.1,0.1,0.1)
-                if i<len(gt.nexts):
-                    if gt.nexts[i].read(x,y):
-                        clr=Color.from_RGBf(0.5,0.5,1.0)
-                next_display[i].set_color(x,y,clr)
+        cg=CellGrid(tkroot,5,5)
+        cg.grid(column=i,row=1)
+        next_display.append(cg)
 
-    tkroot.after(100,peroidic)
-peroidic()
+    board_display=CellGrid(tkroot,9,9)
+    board_display.grid(column=1,columnspan=3,row=2)
 
-tkroot.mainloop()
+    def peroidic():
+        board_current=gt.board
+        board_prev=gt.prev_board
+        board_preclear=gt.preclear_board
+        for x in range(9):
+            for y in range(9):
+                clr=None
+
+                current=board_current.read(x,y)
+                prev=board_prev.read(x,y)
+                preclear=board_preclear.read(x,y)
+                state=(prev,preclear,current)
+                if state==(True,True,True):
+                    # Untouched on
+                    clr=Color.from_RGBf(0.6,0.6,0.6)
+                elif state==(True,True,False):
+                    # Cleared
+                    clr=Color.from_RGBf(0.8,0.5,0.5)
+                elif state==(False,True,True):
+                    # Newly placed
+                    clr=Color.from_RGBf(1.0,1.0,1.0)
+                elif state==(False,True,False):
+                    # Placed then cleared
+                    clr=Color.from_RGBf(1.0,0.9,0.9)
+                elif state==(False,False,False):
+                    # Untouched off
+                    clr=Color.from_RGBf(0.2,0.2,0.2)
+                else:
+                    #Error? threading shenanigans
+                    clr=Color.from_RGBf(1.0,0,0)
+                board_display.set_color(x,y,clr)
+        for i in range(3):
+            for x in range(5):
+                for y in range(5):
+                    clr=Color.from_RGBf(0.1,0.1,0.1)
+                    if i<len(gt.nexts):
+                        if gt.nexts[i].read(x,y):
+                            clr=Color.from_RGBf(0.5,0.5,1.0)
+                    next_display[i].set_color(x,y,clr)
+
+        tkroot.after(100,peroidic)
+    peroidic()
+
+    tkroot.mainloop()
 
 gt.join()
 

@@ -171,7 +171,7 @@ def get_pieces(img):
 
         areacoord=piece_areas[p]
 
-        print("Piece",p,areacoord)
+        #print("Piece",p,areacoord)
         area=img.crop(Tuples.concat(*areacoord))
         area=area.resize(
             Tuples.round(Tuples.mult(1/resize_factor,area.size))
@@ -194,7 +194,7 @@ def get_pieces(img):
                         ymax=y
                     if y<ymin:
                         ymin=y
-        print("Cellcount",cellcount)
+        #print("Cellcount",cellcount)
         if cellcount<10:
             pieces.append(None)
             continue
@@ -203,7 +203,7 @@ def get_pieces(img):
 
         ycells=round((ysize*resize_factor)/piece_cell_size)
         xcells=round((xsize*resize_factor)/piece_cell_size)
-        print("XY",xmin,ymin,"SZ",xsize,ysize,"CC",xcells,ycells)
+        #print("XY",xmin,ymin,"SZ",xsize,ysize,"CC",xcells,ycells)
         def piece_cell_coord(xi,yi):
             xcs=xsize/xcells
             ycs=ysize/ycells
@@ -221,7 +221,7 @@ def get_pieces(img):
                 sample=area.crop(Tuples.concat(tl,br))
                 stat=PIL.ImageStat.Stat(sample)
                 mean=stat.mean[0]
-                print(tl,br,x,y,mean)
+                #print(tl,br,x,y,mean)
                 if mean>120:
                     pc.write(x,y,True)
 

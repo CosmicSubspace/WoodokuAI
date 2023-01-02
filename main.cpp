@@ -26,7 +26,7 @@
 
 
 // Options
-int optNumThreads=8;
+int optNumThreads=4;
 int optSeed=0;
 int optMaxSearchDepth=10;
 int optRandsearchMax=30;
@@ -34,17 +34,20 @@ int optRanddearchMin=10;
 int optStopAfterSteps=0;
 int optMsPerTurn=3000;
 bool optServerGame=false;
+const char *optServerPort="21991";
+const char *optServerAddr="127.0.0.1";
 bool optDisableBoardFitness=false;
 bool optDeterministic=false;
 int optPreviewPieces=5;
 bool optPrintPieces=false;
+
 std::string helpString="\
 WoodokuAI\n\
 \n\
 -h --help Show help\n\
 \n\
 Tweakable values\n\
---thread N Number of threads (default 8)\n\
+--thread N Number of threads (default 4)\n\
 --seed N manually set seed, 0 to randomize (default 0)\n\
 --search-depth N Max search depth (default 10)\n\
 --randsearch-max N Max randsearch iterations (default 30) \n\
@@ -53,13 +56,17 @@ Tweakable values\n\
 --millisec-per-turn N (default 3000) \n\
 \n\
 Flags \n\
---server-game Connect to a server \n\
 --disable-board-fitness Disable board fitness heuristic. \n\
 --deterministic Makes all pieces visible. Not game-accurate.\n\
 \n\
+Server \n\
+--server-game Connect to a server \n\
+--server-addr ADDR Server address (default 127.0.0.1)\n\
+--server-port PORT Server port number (default 21991)\n\
+\n\
 Visuals \n\
 --preview-pieces N Number of pieces to preview. Visual only. (default 5)\n\
---print-pieces Print all pieces available, before starting the game.";
+--print-pieces Print all pieces available, before starting the game.\n";
 
 struct option longopts[]={
     {"help",                    no_argument,NULL,401},
@@ -70,7 +77,9 @@ struct option longopts[]={
     {"randsearch-min",    required_argument,NULL,505},
     {"stop-after-steps",  required_argument,NULL,506},
     {"millisec-per-turn", required_argument,NULL,507},
-    {"server-game",             no_argument,NULL,601},
+    {"server-game",             no_argument,NULL,801},
+    {"server-addr",       required_argument,NULL,802},
+    {"server-port",       required_argument,NULL,803},
     {"disable-board-fitness",   no_argument,NULL,602},
     {"deterministic",           no_argument,NULL,603},
     {"preview-pieces",    required_argument,NULL,701},
@@ -86,12 +95,14 @@ void parse_options(int argc, char** argv){
                   exit(0);                            break;
             case 501: optNumThreads=atoi(optarg);     break;
             case 502: optSeed=atoi(optarg);           break;
-            case 503: optMaxSearchDepth=atoi(optarg);    break;
+            case 503: optMaxSearchDepth=atoi(optarg); break;
             case 504: optRandsearchMax=atoi(optarg);  break;
             case 505: optRanddearchMin=atoi(optarg);  break;
             case 506: optStopAfterSteps=atoi(optarg); break;
             case 507: optMsPerTurn=atoi(optarg);      break;
-            case 601: optServerGame=true;             break;
+            case 801: optServerGame=true;             break;
+            case 802: optServerAddr=optarg;           break;
+            case 803: optServerPort=optarg;           break;
             case 602: optDisableBoardFitness=true;    break;
             case 603: optDeterministic=true;          break;
             case 701: optPreviewPieces=atoi(optarg);  break;
@@ -110,6 +121,8 @@ void parse_options(int argc, char** argv){
     printf("  Stop after: %d\n",optStopAfterSteps);
     printf("  ms per turn: %d\n",optMsPerTurn);
     printf("  Server game: %c\n",optServerGame?'Y':'N');
+    printf("  Server addr: %s\n",optServerAddr);
+    printf("  Server port: %s\n",optServerPort);
     printf("  Disable Board Fitness: %c\n",optDisableBoardFitness?'Y':'N');
     printf("  Deterministic: %c\n",optDeterministic?'Y':'N');
     printf("  Preview Pieces: %d\n",optPreviewPieces);
@@ -715,7 +728,7 @@ int main(int argc, char **argv){
 
     WoodokuClient *wc;
     if (optServerGame){
-        wc= new WoodokuClient("127.0.0.1","14311");
+        wc= new WoodokuClient(optServerAddr,optServerPort);
     }
 
 
@@ -726,7 +739,7 @@ int main(int argc, char **argv){
     Board lastBoard;
     GameState gs;
     while (1){
-        printf("\n\n\n");
+
 
         uint32_t turnIndex=gs.getCurrentStepNum();
 
@@ -823,6 +836,7 @@ int main(int argc, char **argv){
         pq.rebase(gs.getCurrentStepNum());
 
 
+        printf("\n\n\n");
 
         ansiColorSet(BLUE_BRIGHT);
         printf("   ===== Turn %d =====   \n",turnIndex);
@@ -869,9 +883,10 @@ int main(int argc, char **argv){
                 calculateBoardFitness(pr.finalResult));
             ansiColorSet(NONE);
         }
+
         if (optServerGame){
 
-            printf("Sending Move...\n");
+            printf("\nSending Move... ");
             ClientMove cm;
             for(int x=0;x<5;x++){
                 for (int y=0;y<5;y++){
@@ -881,6 +896,7 @@ int main(int argc, char **argv){
             cm.x=placement.x;
             cm.y=placement.y;
             wc->sendMove(turnIndex,&cm);
+            printf("-> Sent!\n");
         }
         //printf("Enter to coninue...\n");
     }
