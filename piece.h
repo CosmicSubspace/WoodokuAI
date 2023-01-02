@@ -23,6 +23,8 @@ public:
     void addBlock(int x, int y);
 
     void debug_print();
+    void debug_print2();
+
     bool hasBlockAt(int x, int y);
 
     bool equal(Piece other);
@@ -36,9 +38,10 @@ private:
 public:
     PieceGenerator(Piece *piecePool, int piecePoolSize);
     Piece generate();
+    void debugPrint();
 };
 
-PieceGenerator* getGlobalPG();
+PieceGenerator* readPieceDef(const char *filename);
 
 #define PIECEQUEUE_SIZE 20
 class PieceQueue{

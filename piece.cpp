@@ -4,6 +4,8 @@
 #include <cstdlib>
 #include <cassert>
 
+#include <vector>
+
 Piece::Piece(){
     data=0xFFFFFFFF;
 }
@@ -65,6 +67,16 @@ void Piece::debug_print(){
     }
     printf("\n");
 }
+void Piece::debug_print2(){
+    Vec2u8 bbox=calculateBoundingBox();
+    for (int y=0;y<=bbox.y;y++){
+        for (int x=0;x<=bbox.x;x++){
+            if (hasBlockAt(x,y)) printf("#");
+            else printf(" ");
+        }
+        printf("\n");
+    }
+}
 
 bool Piece::hasBlockAt(int x, int y){
     // Very unoptimized. Only call in debug/infrequent code plz
@@ -84,6 +96,14 @@ PieceGenerator::PieceGenerator(Piece *piecePool, int piecePoolSize){
 }
 Piece PieceGenerator::generate(){
     return pp[rand()%pps];
+}
+void PieceGenerator::debugPrint(){
+    printf("\nPieceGenerator: %d pieces.\n",pps);
+    for(int i=0;i<pps;i++){
+        printf("Piece %d:\n",i);
+        pp[i].debug_print2();
+        printf("\n");
+    }
 }
 
 PieceQueue::PieceQueue(){
@@ -135,366 +155,53 @@ void PieceQueue::setPiece(uint32_t idx, Piece p){
 
 }
 
-#define NUM_PIECES 64
-PieceGenerator *globalPG=nullptr;
+PieceGenerator* readPieceDef(const char *filename){
+    FILE *f=fopen(filename,"r");
 
-void initializeGlobalPG(){
-    Piece tmp;
-    int pieceN=0;
-    Piece *pieces= new Piece[NUM_PIECES];
+    int x=0;
+    int y=0;
+    Piece p;
+    bool emptyLine=true;
+    std::vector<Piece> *pieces=new std::vector<Piece>();
+    while (1){
+        int r=fgetc(f);
+        if (r==EOF) break;
+        switch (r){
+            case '\n':
+                x=0;
+                y++;
 
-    // AUTO GENERATED CODE BELOW
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
+                if (emptyLine){
+                    // Empty line - end of piece!
+                    if (p.numBlocks()>0){
+                        pieces->push_back(p);
+                    }
+                    y=0;
+                    p=Piece();
+                }
 
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(1,1);
-    pieces[pieceN++]=tmp;
+                emptyLine=true;
 
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(0,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(0,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(2,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(0,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(1,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(2,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    tmp.addBlock(2,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    tmp.addBlock(0,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(1,2);
-    tmp.addBlock(2,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(3,0);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(0,3);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(3,0);
-    tmp.addBlock(4,0);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(0,3);
-    tmp.addBlock(0,4);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(3,0);
-    tmp.addBlock(2,1);
-    tmp.addBlock(1,2);
-    tmp.addBlock(0,3);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,2);
-    tmp.addBlock(3,3);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(2,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(0,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(1,2);
-    tmp.addBlock(2,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(2,1);
-    tmp.addBlock(2,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(2,0);
-    tmp.addBlock(2,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(1,2);
-    tmp.addBlock(2,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(1,1);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(1,1);
-    tmp.addBlock(0,2);
-    tmp.addBlock(1,2);
-    pieces[pieceN++]=tmp;
-
-    tmp=Piece();
-    tmp.addBlock(0,0);
-    tmp.addBlock(1,0);
-    tmp.addBlock(2,0);
-    tmp.addBlock(0,1);
-    tmp.addBlock(2,1);
-    pieces[pieceN++]=tmp;
-
-
-    globalPG= new PieceGenerator(pieces,pieceN);
-}
-
-PieceGenerator* getGlobalPG(){
-    if (globalPG==nullptr){
-        initializeGlobalPG();
+                break;
+            case ' ':
+                emptyLine=false;
+                x++;
+                break;
+            case '#':
+                emptyLine=false;
+                p.addBlock(x,y);
+                x++;
+                break;
+            default:
+                printf("Invalid character in piece definition file: %c",r);
+                exit(1);
+        }
     }
-    return globalPG;
+
+    fclose(f);
+
+    return new PieceGenerator(pieces->data(),pieces->size());
 }
-
-
 
 
 

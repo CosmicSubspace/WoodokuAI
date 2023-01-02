@@ -37,6 +37,7 @@ bool optServerGame=false;
 bool optDisableBoardFitness=false;
 bool optDeterministic=false;
 int optPreviewPieces=5;
+bool optPrintPieces=false;
 std::string helpString="\
 WoodokuAI\n\
 \n\
@@ -57,7 +58,8 @@ Flags \n\
 --deterministic Makes all pieces visible. Not game-accurate.\n\
 \n\
 Visuals \n\
---preview-pieces N Number of pieces to preview. Visual only. (default 5)";
+--preview-pieces N Number of pieces to preview. Visual only. (default 5)\n\
+--print-pieces Print all pieces available, before starting the game.";
 
 struct option longopts[]={
     {"help",                    no_argument,NULL,401},
@@ -71,7 +73,8 @@ struct option longopts[]={
     {"server-game",             no_argument,NULL,601},
     {"disable-board-fitness",   no_argument,NULL,602},
     {"deterministic",           no_argument,NULL,603},
-    {"preview-pieces",    required_argument,NULL,701}
+    {"preview-pieces",    required_argument,NULL,701},
+    {"print-pieces",            no_argument,NULL,702}
 };
 void parse_options(int argc, char** argv){
     while(1){
@@ -92,24 +95,25 @@ void parse_options(int argc, char** argv){
             case 602: optDisableBoardFitness=true;    break;
             case 603: optDeterministic=true;          break;
             case 701: optPreviewPieces=atoi(optarg);  break;
+            case 702: optPrintPieces=true;            break;
         }
 
         if (opt==-1) break;
     }
 
-
-    printf("#Threads: %d\n",optNumThreads);
-    printf("Seed: %d\n",optSeed);
-    printf("Search Depth: %d\n",optMaxSearchDepth);
-    printf("RandSearch Max: %d\n",optRandsearchMax);
-    printf("RandSearch Min: %d\n",optRanddearchMin);
-    printf("Stop after: %d\n",optStopAfterSteps);
-    printf("ms per turn: %d\n",optMsPerTurn);
-    printf("Server game: %c\n",optServerGame?'Y':'N');
-    printf("Disable Board Fitness: %c\n",optDisableBoardFitness?'Y':'N');
-    printf("Deterministic: %c\n",optDeterministic?'Y':'N');
-    printf("Preview Pieces: %d\n",optPreviewPieces);
-
+    printf("WoodokuAI\n");
+    printf("  #Threads: %d\n",optNumThreads);
+    printf("  Seed: %d\n",optSeed);
+    printf("  Search Depth: %d\n",optMaxSearchDepth);
+    printf("  RandSearch Max: %d\n",optRandsearchMax);
+    printf("  RandSearch Min: %d\n",optRanddearchMin);
+    printf("  Stop after: %d\n",optStopAfterSteps);
+    printf("  ms per turn: %d\n",optMsPerTurn);
+    printf("  Server game: %c\n",optServerGame?'Y':'N');
+    printf("  Disable Board Fitness: %c\n",optDisableBoardFitness?'Y':'N');
+    printf("  Deterministic: %c\n",optDeterministic?'Y':'N');
+    printf("  Preview Pieces: %d\n",optPreviewPieces);
+    printf("  Print Pieces: %c\n",optPrintPieces?'Y':'N');
 }
 
 uint64_t timeSinceEpochMillisec() {
@@ -335,6 +339,7 @@ void allocateArrays(){
 }
 
 void threadFunc();
+PieceGenerator *randSearchPG;
 void initializeThreadData(GameState gs,PieceQueue *pq){
     threadKillRequest=false;
     nextWorkIdx=0;
@@ -381,7 +386,7 @@ void initializeThreadData(GameState gs,PieceQueue *pq){
                 if (!srq.pq.isVisible(currentStep+i)){
                     srq.pq.setPiece(
                         currentStep+i,
-                        getGlobalPG()->generate());
+                        randSearchPG->generate());
                 }
 
             }
@@ -715,7 +720,9 @@ int main(int argc, char **argv){
 
 
     PieceQueue pq;
-    PieceGenerator *pgen=getGlobalPG();
+    PieceGenerator *pgen=readPieceDef("piecedefs.txt");
+    if (optPrintPieces) pgen->debugPrint();
+    randSearchPG=pgen;
     Board lastBoard;
     GameState gs;
     while (1){
