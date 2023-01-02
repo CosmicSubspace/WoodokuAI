@@ -1,10 +1,10 @@
 CXX=g++
 CFLAGS=-O3
 
-all: woodokuAI
+all: WoodokuAI
 
-woodokuAI: main.o piece.o game.o
-	$(CXX) -o woodokuAI main.o piece.o game.o -lpthread
+WoodokuAI: main.o piece.o game.o
+	$(CXX) -o WoodokuAI main.o piece.o game.o -lpthread
 
 main.o: main.cpp woodoku_client.h printutil.h
 	$(CXX) -c main.cpp -o main.o $(CFLAGS)
@@ -16,4 +16,4 @@ game.o: game.cpp game.h
 	$(CXX) -c game.cpp -o game.o $(CFLAGS)
 
 clean:
-	rm -f $(wildcard *.o) woodokuAI
+	rm -f $(wildcard *.o) WoodokuAI
