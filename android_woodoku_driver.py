@@ -1,26 +1,49 @@
+# Screen coordinates.
+# Tested on 1080x2400 6.4in display
+
+# Board's (0,0) and (8,8) cell coordinates
+board_00=(80,785)
+board_88=(1000,1700)
+
+# The program will sample a square area with a size double of this,
+# centered on the cell center.
+board_sampling_size=10
+
+# Coordinates of the three pieces
+piece_locations=[
+    (200,2100),
+    (500,2100),
+    (850,2100)]
+
+# Where the touch needs to be if placing a 3x3 piece
+# on the top-left corner of the board
+piece_placement_touchloc_3x3=(200,1190)
+
+# Difference in touch location per block difference of the piece.
+# As in, how different the touch location is between
+# placing a (2,2) piece and (3,3) piece.
+piece_placement_offset_perblock=(60,110)
+
+# Area of the three pieces. Used for cropping.
+piece_areas=[
+    ((100,1900),(400,2300)),
+    ((400,1900),(700,2300)),
+    ((700,1900),(1000,2300))
+    ]
+
+# Cell size of the pieces
+piece_cell_size=55
+
+
+# If value greater than this, detect cell as filled.
+brigheness_cutoff=120
+
 import subprocess
 import PIL.Image
 import PIL.ImageStat
 import woodoku_common
 import math
-'''
-Touch coord for 0,0 placement
-Bbox XxY
-5x1 310 960
-4x1 260 960
-3x3 200 1190
-3x2 200 1070
-3x1 205 960
-2x3 140 1190
-2x2 140 1075
-2x1 140 960
-1x5
-1x4 85 1310
-1x3 85 1190
-1x2 85 1080
-1x1
 
-'''
 
 def adb(*args):
     cmd("adb",*args)
@@ -111,14 +134,7 @@ class Tuples:
         for x in t:
             s+=(x*x)
         return math.sqrt(s)
-board_00=(80,785)
-board_88=(1000,1700)
-piece_locations=[
-    (200,2100),
-    (500,2100),
-    (850,2100)]
-piece_placement_touchloc_3x3=(200,1190)
-piece_placement_offset_perblock=(60,110)
+
 def piece_placement_offset(xCells,yCells):
     cell_delta=Tuples.sub((xCells,yCells),(3,3))
     tl_3x3_delta=Tuples.elementwise_mult(
@@ -143,25 +159,20 @@ def get_board_state(img):
     for y in range(9):
         for x in range(9):
             center=cellLocation(x,y)
-            tl=Tuples.round(Tuples.sub(center,(10,10)))
-            br=Tuples.round(Tuples.add(center,(10,10)))
+            bbox_offset=(board_sampling_size,board_sampling_size)
+            tl=Tuples.round(Tuples.sub(center,bbox_offset))
+            br=Tuples.round(Tuples.add(center,bbox_offset))
             sample=img.crop(Tuples.concat(tl,br))
             stat=PIL.ImageStat.Stat(sample)
             mean=stat.mean[0]
-            filled=mean>120
+            filled=mean>brigheness_cutoff
             if filled:
                 board.write(x,y,True)
             #print(x,y,center,mean)
     #print(board)
     return board
 
-pieces_area=((100,1900),(1000,2300))
-piece_areas=[
-    ((100,1900),(400,2300)),
-    ((400,1900),(700,2300)),
-    ((700,1900),(1000,2300))
-    ]
-piece_cell_size=55
+
 def get_pieces(img):
     pieces=[]
     resize_factor=5
@@ -184,7 +195,7 @@ def get_pieces(img):
         cellcount=0
         for y in range(area.size[1]):
             for x in range(area.size[0]):
-                if area.getpixel((x,y)) >120:
+                if area.getpixel((x,y)) >brigheness_cutoff:
                     cellcount+=1
                     if x>xmax:
                         xmax=x
@@ -214,7 +225,7 @@ def get_pieces(img):
         pc=woodoku_common.Piece()
         for y in range(ycells):
             for x in range(xcells):
-                ss=20//resize_factor
+                ss=piece_cell_size*0.7/resize_factor/2
                 center=piece_cell_coord(x,y)
                 tl=Tuples.round(Tuples.sub(center,(ss,ss)))
                 br=Tuples.round(Tuples.add(center,(ss,ss)))
@@ -222,7 +233,7 @@ def get_pieces(img):
                 stat=PIL.ImageStat.Stat(sample)
                 mean=stat.mean[0]
                 #print(tl,br,x,y,mean)
-                if mean>120:
+                if mean>brigheness_cutoff:
                     pc.write(x,y,True)
 
         pieces.append(pc)
